@@ -203,3 +203,25 @@ export async function generateAiImage(params: {
     return { success: false, error: err?.message || 'Image generation failed' };
   }
 }
+
+export async function cloneCollageTemplate(imageBase64: string): Promise<{
+  success: boolean;
+  data?: {
+    nameAr?: string;
+    nameEn?: string;
+    slots: { x: number; y: number; w: number; h: number; shape?: string; isHero?: boolean }[];
+  };
+  useClientScanner?: boolean;
+}> {
+  try {
+    const res = await fetch('/api/clone-collage-template', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64 }),
+    });
+    return await res.json();
+  } catch {
+    return { success: false, useClientScanner: true };
+  }
+}
+

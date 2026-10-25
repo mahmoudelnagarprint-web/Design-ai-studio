@@ -1196,6 +1196,80 @@ app.post('/api/generate-image', async (req, res) => {
   }
 });
 
+// Analyze & Clone Collage Template Image into Exact Slot Geometry
+app.post('/api/clone-collage-template', async (req, res) => {
+  try {
+    const { imageBase64 } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ success: false, error: 'Missing imageBase64' });
+    }
+
+    const ai = getGeminiClient(resolveApiKey(req));
+    if (ai) {
+      try {
+        const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+        const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+
+        const response = await generateWithFallback(ai, {
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    data: cleanBase64,
+                    mimeType,
+                  },
+                },
+                {
+                  text: `Analyze this photo collage template layout image. Detect all distinct photo frame slots/boxes inside the collage template.
+Return ONLY valid JSON with this structure:
+{
+  "nameAr": "قالب مستنسخ ذكي",
+  "nameEn": "Cloned Smart Template",
+  "slots": [
+    { "x": number, "y": number, "w": number, "h": number, "shape": "rect" | "circle" | "arch", "isHero": boolean }
+  ]
+}
+Rules:
+- x, y, w, h must be percentages from 0 to 100 representing each photo slot's top-left (x, y) and size (w, h) within the canvas (keep 3% to 97% bounds so nothing clips).
+- Mark the largest slot with "isHero": true.
+- Do not overlap slots unless the template clearly overlaps them.`,
+                },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+
+        const text = response.text || '';
+        const parsed = JSON.parse(text);
+        if (parsed && Array.isArray(parsed.slots) && parsed.slots.length > 0) {
+          return res.json({
+            success: true,
+            data: parsed,
+          });
+        }
+      } catch {
+        // Fallback to client-side computer vision scanner if API quota is reached
+      }
+    }
+
+    return res.json({
+      success: false,
+      useClientScanner: true,
+    });
+  } catch {
+    return res.json({
+      success: false,
+      useClientScanner: true,
+    });
+  }
+});
+
 // Mount Vite or Serve Static in production
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {

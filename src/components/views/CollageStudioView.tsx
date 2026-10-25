@@ -1,6 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStudio } from '../../context/StudioContext';
-import { generateAiImage } from '../../services/api';
+import { generateAiImage, cloneCollageTemplate } from '../../services/api';
+import {
+  PRELOADED_REFERENCE_SHEETS,
+  MASTER_CURATED_LAYOUTS,
+  EXPANDED_BACKGROUNDS,
+  SEAMLESS_PATTERNS,
+  getPatternDataUri,
+  extractSlotsFromTemplateImage,
+  ReferenceTemplateSheet,
+} from '../../services/collageCatalog';
 import {
   LayoutGrid,
   Sparkles,
@@ -27,14 +36,12 @@ import {
   Image as ImageIcon,
   Wand2,
   ArrowLeftRight,
-  Layers,
-  Eye,
   Scissors,
   Maximize2,
-  Check,
   Loader2,
-  Copy,
-  Sparkle,
+  ScanLine,
+  Grid,
+  Minimize2,
 } from 'lucide-react';
 
 // ============================================================================
@@ -42,7 +49,16 @@ import {
 // ============================================================================
 
 export type SlotShape = 'rect' | 'circle' | 'arch' | 'hexagon' | 'diamond' | 'polaroid';
-export type LayoutCategory = 'all' | 'bento' | 'royal' | 'editorial' | 'geometric' | 'classic';
+export type LayoutCategory =
+  | 'all'
+  | 'cluster'
+  | 'scrapbook'
+  | 'bento'
+  | 'royal'
+  | 'editorial'
+  | 'geometric'
+  | 'classic'
+  | 'cloned';
 export type PhotoFilterType = 'none' | 'luxury-warm' | 'cinematic' | 'crisp' | 'bw' | 'vintage-gold' | 'vivid';
 export type TextEffectType = 'gold-foil' | 'soft-glow' | 'ribbon-badge' | 'glass-pill' | 'outline' | 'clean-shadow';
 
@@ -71,9 +87,9 @@ export interface CollagePhotoSlotState {
   id: string;
   imageUrl: string;
   label: string;
-  panX: number; // -100 to 100
-  panY: number; // -100 to 100
-  zoom: number; // 0.5 to 3
+  panX: number; // -150 to 150
+  panY: number; // -150 to 150
+  zoom: number; // 0.3 to 4.0
   rotation: number; // -180 to 180
   flipX: boolean;
   flipY: boolean;
@@ -109,112 +125,6 @@ export interface BackgroundPreset {
   borderDefault: string;
   accentText: string;
 }
-
-// ============================================================================
-// CURATED 2028 BACKGROUNDS, FONTS, STICKERS & LAYOUT GENERATORS
-// ============================================================================
-
-const BACKGROUND_PRESETS: BackgroundPreset[] = [
-  {
-    id: 'royal-emerald',
-    nameAr: 'زمردي ملكي وذهبي',
-    nameEn: 'Royal Emerald & Gold',
-    cssGradient: 'radial-gradient(circle at 50% 35%, #16382c 0%, #091c15 60%, #020906 100%)',
-    stops: ['#16382c', '#091c15', '#020906'],
-    borderDefault: '#d4af37',
-    accentText: '#fde047',
-  },
-  {
-    id: 'obsidian-champagne',
-    nameAr: 'أوبسيديان وشامبانيا',
-    nameEn: 'Obsidian & Champagne',
-    cssGradient: 'radial-gradient(circle at 50% 30%, #27272a 0%, #111113 60%, #050507 100%)',
-    stops: ['#27272a', '#111113', '#050507'],
-    borderDefault: '#f59e0b',
-    accentText: '#fef08a',
-  },
-  {
-    id: 'midnight-sapphire',
-    nameAr: 'ياقوتي منتصف الليل',
-    nameEn: 'Midnight Sapphire',
-    cssGradient: 'radial-gradient(circle at 50% 30%, #1e3a8a 0%, #0f172a 65%, #020617 100%)',
-    stops: ['#1e3a8a', '#0f172a', '#020617'],
-    borderDefault: '#38bdf8',
-    accentText: '#e0f2fe',
-  },
-  {
-    id: 'velvet-burgundy',
-    nameAr: 'عنابي مخملي وروز جولد',
-    nameEn: 'Velvet Burgundy',
-    cssGradient: 'radial-gradient(circle at 50% 35%, #4c0519 0%, #27030d 65%, #0f0206 100%)',
-    stops: ['#4c0519', '#27030d', '#0f0206'],
-    borderDefault: '#fbbf24',
-    accentText: '#fde68a',
-  },
-  {
-    id: 'neo-aurora-2028',
-    nameAr: 'أورورا 2028 الزجاجي',
-    nameEn: 'Neo Aurora 2028',
-    cssGradient: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #042f2e 100%)',
-    stops: ['#0f172a', '#1e1b4b', '#042f2e'],
-    borderDefault: '#2dd4bf',
-    accentText: '#99f6e4',
-  },
-  {
-    id: 'desert-bronze',
-    nameAr: 'رمال الصحراء والبرونز',
-    nameEn: 'Desert Bronze',
-    cssGradient: 'radial-gradient(circle at 50% 35%, #451a03 0%, #291002 65%, #120601 100%)',
-    stops: ['#451a03', '#291002', '#120601'],
-    borderDefault: '#f59e0b',
-    accentText: '#fed7aa',
-  },
-  {
-    id: 'editorial-ivory',
-    nameAr: 'عاجي المجلات الفاخرة',
-    nameEn: 'Editorial Ivory',
-    cssGradient: 'radial-gradient(circle at 50% 35%, #fafaf9 0%, #f5f5f4 65%, #e7e5e4 100%)',
-    stops: ['#fafaf9', '#f5f5f4', '#e7e5e4'],
-    borderDefault: '#1c1917',
-    accentText: '#1c1917',
-  },
-  {
-    id: 'royal-amethyst',
-    nameAr: 'أماثيست ملكي فاخر',
-    nameEn: 'Royal Amethyst',
-    cssGradient: 'radial-gradient(circle at 50% 35%, #3b0764 0%, #1e0536 65%, #090112 100%)',
-    stops: ['#3b0764', '#1e0536', '#090112'],
-    borderDefault: '#e879f9',
-    accentText: '#f5d0fe',
-  },
-  {
-    id: 'pastel-blossom',
-    nameAr: 'باستيل عائلي ناعم',
-    nameEn: 'Soft Pastel Blossom',
-    cssGradient: 'linear-gradient(135deg, #fdf2f8 0%, #f0f9ff 50%, #fefce8 100%)',
-    stops: ['#fdf2f8', '#f0f9ff', '#fefce8'],
-    borderDefault: '#f472b6',
-    accentText: '#831843',
-  },
-  {
-    id: 'carbon-matte',
-    nameAr: 'كربون أسود مطفي',
-    nameEn: 'Carbon Matte Studio',
-    cssGradient: 'radial-gradient(circle at 50% 50%, #18181b 0%, #09090b 70%, #000000 100%)',
-    stops: ['#18181b', '#09090b', '#000000'],
-    borderDefault: '#a1a1aa',
-    accentText: '#f4f4f5',
-  },
-];
-
-const SURFACE_PATTERNS = [
-  { id: 'none', nameAr: 'بدون نقش', nameEn: 'Clean Smooth' },
-  { id: 'luxury-frame', nameAr: 'إطار ملكي مزدوج', nameEn: 'Double Royal Border' },
-  { id: 'arabesque-corners', nameAr: 'زوايا هندسية ذهبية', nameEn: 'Gold Corner Ornaments' },
-  { id: 'architectural-grid', nameAr: 'شبكة هندسية 2028', nameEn: '2028 Tech Grid' },
-  { id: 'subtle-dots', nameAr: 'نقاط استوديو دقيقة', nameEn: 'Studio Polka Matrix' },
-  { id: 'spotlight-rays', nameAr: 'إضاءة مسرحية علوية', nameEn: 'Stage Spotlight' },
-];
 
 const FONT_LIBRARY = [
   { id: 'Cairo', name: 'Cairo • القاهرة (عصري)', sample: 'تصميم كولاج ٢٠٢٨' },
@@ -289,7 +199,7 @@ const ASPECT_PRESETS = [
   { id: '30x40', nameAr: '30×40 سم (بورتريه تخرج)', wCm: 30, hCm: 40, ratio: '3/4' },
   { id: '40x30', nameAr: '40×30 سم (أفقي عريض)', wCm: 40, hCm: 30, ratio: '4/3' },
   { id: '30x30', nameAr: '30×30 سم (مربع 1:1)', wCm: 30, hCm: 30, ratio: '1/1' },
-  { id: '20x30', nameAr: '20×30 سم (A4 بورتريه)', wCm: 20, hCm: 30, ratio: '2/3' },
+  { id: '24x32', nameAr: '6×8 إنش (سكرابوكينج)', wCm: 24, hCm: 32, ratio: '3/4' },
   { id: '50x70', nameAr: '50×70 سم (بوستر كبير)', wCm: 50, hCm: 70, ratio: '5/7' },
   { id: 'story', nameAr: 'ستوري ريلز (9:16)', wCm: 27, hCm: 48, ratio: '9/16' },
 ];
@@ -305,46 +215,12 @@ const PHOTO_FILTERS: { id: PhotoFilterType; nameAr: string; css: string }[] = [
 ];
 
 // ============================================================================
-// DYNAMIC & CURATED 2028 LAYOUT ENGINE (SUPPORTS 2 TO 16 PHOTOS)
+// PROCEDURAL GENERATOR FOR ANY PHOTO COUNT (SUPPLEMENTING CURATED TEMPLATES)
 // ============================================================================
 
-function generateLayoutsForPhotoCount(count: number): CollageLayoutPreset[] {
-  const layouts: CollageLayoutPreset[] = [];
-
-  // 1. BENTO HERO CENTER / SPOTLIGHT (Hero in center or top, surrounded by auxiliary slots)
+function generateProceduralLayoutsForCount(count: number): CollageLayoutPreset[] {
   const buildSpotlightSlots = (): LayoutSlotDef[] => {
-    if (count === 2) {
-      return [
-        { x: 4, y: 12, w: 54, h: 74, shape: 'rect', isHero: true },
-        { x: 60, y: 20, w: 36, h: 58, shape: 'rect' },
-      ];
-    }
-    if (count === 3) {
-      return [
-        { x: 4, y: 12, w: 56, h: 74, shape: 'rect', isHero: true },
-        { x: 62, y: 12, w: 34, h: 36, shape: 'rect' },
-        { x: 62, y: 50, w: 34, h: 36, shape: 'rect' },
-      ];
-    }
-    if (count === 4) {
-      return [
-        { x: 4, y: 12, w: 58, h: 52, shape: 'rect', isHero: true },
-        { x: 64, y: 12, w: 32, h: 52, shape: 'rect' },
-        { x: 4, y: 66, w: 45, h: 22, shape: 'rect' },
-        { x: 51, y: 66, w: 45, h: 22, shape: 'rect' },
-      ];
-    }
-    if (count === 5) {
-      return [
-        { x: 20, y: 14, w: 60, h: 48, shape: 'rect', isHero: true },
-        { x: 4, y: 14, w: 14, h: 48, shape: 'rect' },
-        { x: 82, y: 14, w: 14, h: 48, shape: 'rect' },
-        { x: 10, y: 64, w: 38, h: 22, shape: 'rect' },
-        { x: 52, y: 64, w: 38, h: 22, shape: 'rect' },
-      ];
-    }
     if (count === 7) {
-      // Iconic Graduation 7-Photo Royal Layout
       return [
         { x: 24, y: 13, w: 52, h: 48, shape: 'rect', isHero: true },
         { x: 4, y: 15, w: 18, h: 22, shape: 'rect' },
@@ -355,11 +231,10 @@ function generateLayoutsForPhotoCount(count: number): CollageLayoutPreset[] {
         { x: 52, y: 63, w: 40, h: 23, shape: 'rect' },
       ];
     }
-    // General N-photo Spotlight Bento (Hero + surrounding slots)
     const slots: LayoutSlotDef[] = [
       { x: 24, y: 13, w: 52, h: 46, shape: 'rect', isHero: true },
     ];
-    const remaining = count - 1;
+    const remaining = Math.max(1, count - 1);
     const leftCount = Math.floor(remaining / 3);
     const rightCount = Math.floor(remaining / 3);
     const bottomCount = remaining - leftCount - rightCount;
@@ -379,125 +254,18 @@ function generateLayoutsForPhotoCount(count: number): CollageLayoutPreset[] {
     return slots;
   };
 
-  // 2. ROYAL ARCH & GEOMETRIC LUXURY
-  const buildRoyalArchSlots = (): LayoutSlotDef[] => {
-    const base = buildSpotlightSlots();
-    return base.map((s, idx) => ({
-      ...s,
-      shape: idx === 0 ? 'arch' : idx % 2 === 1 ? 'circle' : 'rect',
-    }));
-  };
+  const base = buildSpotlightSlots();
+  const tilts = [0, -5, 4, 5, -4, -3, 3, -6, 6, -4, 4, -3, 5, -5, 3, -2];
 
-  // 3. 2028 ASYMMETRIC BENTO MASONRY
-  const buildAsymmetricBento = (): LayoutSlotDef[] => {
-    const slots: LayoutSlotDef[] = [];
-    // Top-left hero
-    slots.push({ x: 4, y: 13, w: 56, h: 46, shape: 'rect', isHero: true });
-    const rem = count - 1;
-    const rightCol = Math.max(1, Math.min(3, Math.ceil(rem / 2)));
-    const bottomRow = rem - rightCol;
-
-    for (let i = 0; i < rightCol; i++) {
-      const h = (46 - (rightCol - 1) * 2) / rightCol;
-      slots.push({ x: 62, y: 13 + i * (h + 2), w: 34, h, shape: 'rect' });
-    }
-    if (bottomRow > 0) {
-      for (let i = 0; i < bottomRow; i++) {
-        const w = (92 - (bottomRow - 1) * 2) / bottomRow;
-        slots.push({ x: 4 + i * (w + 2), y: 61, w, h: 25, shape: 'rect' });
-      }
-    }
-    return slots;
-  };
-
-  // 4. POLAROID SCATTER STUDIO (2028 Editorial Tilt)
-  const buildPolaroidScatter = (): LayoutSlotDef[] => {
-    const base = buildSpotlightSlots();
-    const tilts = [0, -5, 4, 5, -4, -3, 3, -6, 6, -4, 4, -3, 5, -5, 3, -2];
-    return base.map((s, idx) => ({
-      ...s,
-      shape: 'polaroid',
-      tilt: idx === 0 ? 0 : tilts[idx % tilts.length],
-    }));
-  };
-
-  // 5. HONEYCOMB / DIAMOND GEOMETRIC
-  const buildGeometricMatrix = (): LayoutSlotDef[] => {
-    const base = buildSpotlightSlots();
-    return base.map((s, idx) => ({
-      ...s,
-      shape: idx === 0 ? 'hexagon' : idx % 2 === 0 ? 'hexagon' : 'circle',
-    }));
-  };
-
-  // 6. EVEN ARCHITECTURAL GRID
-  const buildUniformGrid = (): LayoutSlotDef[] => {
-    const cols = count <= 2 ? 2 : count <= 4 ? 2 : count <= 6 ? 3 : count <= 9 ? 3 : 4;
-    const rows = Math.ceil(count / cols);
-    const totalW = 92;
-    const totalH = 73;
-    const gap = 2;
-    const cellW = (totalW - (cols - 1) * gap) / cols;
-    const cellH = (totalH - (rows - 1) * gap) / rows;
-    const slots: LayoutSlotDef[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const r = Math.floor(i / cols);
-      const c = i % cols;
-      slots.push({
-        x: 4 + c * (cellW + gap),
-        y: 13 + r * (cellH + gap),
-        w: cellW,
-        h: cellH,
-        shape: 'rect',
-        isHero: i === 0,
-      });
-    }
-    return slots;
-  };
-
-  // 7. CIRCULAR ORBIT SPOTLIGHT
-  const buildCircularOrbit = (): LayoutSlotDef[] => {
-    const slots: LayoutSlotDef[] = [
-      { x: 26, y: 24, w: 48, h: 44, shape: 'circle', isHero: true },
-    ];
-    const rem = count - 1;
-    const radiusX = 36;
-    const radiusY = 30;
-    for (let i = 0; i < rem; i++) {
-      const angle = (i / rem) * Math.PI * 2 - Math.PI / 2;
-      const cx = 50 + Math.cos(angle) * radiusX;
-      const cy = 48 + Math.sin(angle) * radiusY;
-      const size = rem <= 6 ? 19 : 15;
-      slots.push({
-        x: Math.max(3, Math.min(97 - size, cx - size / 2)),
-        y: Math.max(12, Math.min(86 - size, cy - size / 2)),
-        w: size,
-        h: size,
-        shape: 'circle',
-      });
-    }
-    return slots;
-  };
-
-  layouts.push(
+  return [
     {
       id: `spotlight-royal-${count}`,
       nameAr: `التوزيع الملكي الذكي (${count} صور)`,
       nameEn: `Royal Center Spotlight (${count})`,
       category: 'royal',
       photoCount: count,
-      badge: '2028 VIP',
-      slots: buildSpotlightSlots(),
-    },
-    {
-      id: `bento-asymmetric-${count}`,
-      nameAr: `بينتو 2028 غير متماثل (${count} صور)`,
-      nameEn: `2028 Bento Studio (${count})`,
-      category: 'bento',
-      photoCount: count,
-      badge: 'TREND',
-      slots: buildAsymmetricBento(),
+      badge: 'ROYAL',
+      slots: base,
     },
     {
       id: `royal-arch-${count}`,
@@ -505,7 +273,10 @@ function generateLayoutsForPhotoCount(count: number): CollageLayoutPreset[] {
       nameEn: `Luxury Arch & Circles (${count})`,
       category: 'royal',
       photoCount: count,
-      slots: buildRoyalArchSlots(),
+      slots: base.map((s, idx) => ({
+        ...s,
+        shape: idx === 0 ? 'arch' : idx % 2 === 1 ? 'circle' : 'rect',
+      })),
     },
     {
       id: `polaroid-scatter-${count}`,
@@ -513,7 +284,11 @@ function generateLayoutsForPhotoCount(count: number): CollageLayoutPreset[] {
       nameEn: `Editorial Polaroid (${count})`,
       category: 'editorial',
       photoCount: count,
-      slots: buildPolaroidScatter(),
+      slots: base.map((s, idx) => ({
+        ...s,
+        shape: 'polaroid',
+        tilt: idx === 0 ? 0 : tilts[idx % tilts.length],
+      })),
     },
     {
       id: `geometric-hex-${count}`,
@@ -521,34 +296,15 @@ function generateLayoutsForPhotoCount(count: number): CollageLayoutPreset[] {
       nameEn: `Hexagon Matrix (${count})`,
       category: 'geometric',
       photoCount: count,
-      slots: buildGeometricMatrix(),
+      slots: base.map((s, idx) => ({
+        ...s,
+        shape: idx === 0 ? 'hexagon' : idx % 2 === 0 ? 'hexagon' : 'circle',
+      })),
     },
-    {
-      id: `circular-orbit-${count}`,
-      nameAr: `المدار الدائري المتمركز (${count} صور)`,
-      nameEn: `Circular Orbit (${count})`,
-      category: 'geometric',
-      photoCount: count,
-      slots: buildCircularOrbit(),
-    },
-    {
-      id: `uniform-grid-${count}`,
-      nameAr: `الشبكة الهندسية المتوازنة (${count} صور)`,
-      nameEn: `Balanced Studio Grid (${count})`,
-      category: 'classic',
-      photoCount: count,
-      slots: buildUniformGrid(),
-    }
-  );
-
-  return layouts;
+  ];
 }
 
-// ============================================================================
-// SAMPLE STUDIO PORTRAITS & PLACEHOLDERS (SVG DATA URLS - ZERO BROKEN IMAGES)
-// ============================================================================
-
-function createSampleSvgPortrait(index: number, title: string, accent: string): string {
+function createSampleSvgPortrait(index: number, title: string): string {
   const palettes = [
     ['#0f172a', '#1e293b', '#f59e0b'],
     ['#064e3b', '#047857', '#fde047'],
@@ -592,8 +348,11 @@ export const CollageStudioView: React.FC = () => {
 
   // --- Studio Sidebar Tab ---
   const [activeToolTab, setActiveToolTab] = useState<
-    'layouts' | 'photos' | 'backgrounds' | 'text' | 'stickers' | 'ai'
+    'layouts' | 'cloner' | 'photos' | 'backgrounds' | 'text' | 'stickers' | 'ai'
   >('layouts');
+
+  // --- Stage Interaction Mode: 'pan-photo' (Pan/Zoom inside slot) vs 'edit-frame' (Move/Resize slot frame) ---
+  const [stageMode, setStageMode] = useState<'pan-photo' | 'edit-frame'>('pan-photo');
 
   // --- Dimensions & Aspect Ratio ---
   const [selectedAspectId, setSelectedAspectId] = useState<string>('30x40');
@@ -602,19 +361,32 @@ export const CollageStudioView: React.FC = () => {
 
   // --- Layout & Grid Geometry ---
   const [numPhotos, setNumPhotos] = useState<number>(7);
+  const [filterByPhotoCount, setFilterByPhotoCount] = useState<boolean>(false);
   const [layoutCategory, setLayoutCategory] = useState<LayoutCategory>('all');
-  const [activeLayoutId, setActiveLayoutId] = useState<string>('spotlight-royal-7');
+  const [activeLayoutId, setActiveLayoutId] = useState<string>('cluster-4-spiral7');
+  const [customSlots, setCustomSlots] = useState<LayoutSlotDef[] | null>(null);
+  const [clonedTemplates, setClonedTemplates] = useState<CollageLayoutPreset[]>([]);
+
   const [slotGap, setSlotGap] = useState<number>(6); // px in preview
-  const [outerMargin, setOuterMargin] = useState<number>(20); // px in preview
-  const [cornerRadius, setCornerRadius] = useState<number>(14); // px
+  const [outerMargin, setOuterMargin] = useState<number>(16); // px in preview
+  const [cornerRadius, setCornerRadius] = useState<number>(8); // px
   const [borderWidth, setBorderWidth] = useState<number>(2); // px
   const [borderColor, setBorderColor] = useState<string>('#d4af37');
-  const [doubleGoldBorder, setDoubleGoldBorder] = useState<boolean>(true);
+  const [doubleGoldBorder, setDoubleGoldBorder] = useState<boolean>(false);
 
-  // --- Background & Surface ---
-  const [selectedBgPreset, setSelectedBgPreset] = useState<BackgroundPreset>(BACKGROUND_PRESETS[0]);
+  // --- Background & Seamless Pattern State ---
+  const [selectedBgPreset, setSelectedBgPreset] = useState<BackgroundPreset>(EXPANDED_BACKGROUNDS[0]);
   const [customBgImageUrl, setCustomBgImageUrl] = useState<string | null>(null);
-  const [surfacePattern, setSurfacePattern] = useState<string>('luxury-frame');
+  const [selectedPatternId, setSelectedPatternId] = useState<string>('architectural-grid');
+  const [patternColor, setPatternColor] = useState<string>('#d4af37');
+  const [patternOpacity, setPatternOpacity] = useState<number>(0.18);
+  const [patternScale, setPatternScale] = useState<number>(36);
+
+  // --- Template Cloner State ---
+  const [selectedRefSheet, setSelectedRefSheet] = useState<ReferenceTemplateSheet>(PRELOADED_REFERENCE_SHEETS[0]);
+  const [uploadedTemplateUrl, setUploadedTemplateUrl] = useState<string | null>(null);
+  const [selectedSheetCell, setSelectedSheetCell] = useState<{ row: number; col: number }>({ row: 0, col: 3 });
+  const [isCloningTemplate, setIsCloningTemplate] = useState<boolean>(false);
 
   // --- Photo Slots State (Up to 16 preserved slots) ---
   const [photoSlots, setPhotoSlots] = useState<CollagePhotoSlotState[]>(() => {
@@ -642,7 +414,7 @@ export const CollageStudioView: React.FC = () => {
       imageUrl:
         existingRefs[idx]?.url ||
         (idx === 0 && activeProject?.originalImages?.[0]) ||
-        createSampleSvgPortrait(idx, defaultLabels[idx], '#d4af37'),
+        createSampleSvgPortrait(idx, defaultLabels[idx]),
       label: defaultLabels[idx],
       panX: 0,
       panY: 0,
@@ -652,7 +424,7 @@ export const CollageStudioView: React.FC = () => {
       flipY: false,
       filter: 'none',
       isLocked: idx === 0,
-      caption: idx === 0 ? 'الخريج الأساسي' : '',
+      caption: '',
     }));
   });
 
@@ -662,6 +434,15 @@ export const CollageStudioView: React.FC = () => {
   const [isDraggingPan, setIsDraggingPan] = useState<boolean>(false);
   const panStartRef = useRef<{ x: number; y: number; initialPanX: number; initialPanY: number } | null>(null);
 
+  // --- Free Frame Move / Resize Drag State ---
+  const [frameDragState, setFrameDragState] = useState<{
+    slotIdx: number;
+    mode: 'move' | 'resize-se' | 'resize-e' | 'resize-s' | 'resize-nw';
+    startX: number;
+    startY: number;
+    initialSlot: LayoutSlotDef;
+  } | null>(null);
+
   // --- Free Overlays (Text & Stickers) ---
   const [overlays, setOverlays] = useState<CollageOverlayItem[]>([
     {
@@ -670,8 +451,8 @@ export const CollageStudioView: React.FC = () => {
       content: 'مبروك التخرج ٢٠٢٦',
       subContent: 'CLASS OF 2026 • ROYAL EDITION',
       x: 50,
-      y: 6.5,
-      fontSize: 26,
+      y: 6,
+      fontSize: 24,
       fontFamily: 'Amiri',
       color: '#fde047',
       accentColor: '#d4af37',
@@ -686,27 +467,13 @@ export const CollageStudioView: React.FC = () => {
       content: 'المهندس / أحمد النجار',
       subContent: 'جامعة القاهرة • كلية الهندسة • مرتبة الشرف',
       x: 50,
-      y: 92,
-      fontSize: 18,
+      y: 93,
+      fontSize: 17,
       fontFamily: 'Cairo',
       color: '#fde047',
       accentColor: '#d4af37',
       effect: 'ribbon-badge',
       rotation: 0,
-      scale: 1,
-      opacity: 1,
-    },
-    {
-      id: 'stk-1',
-      type: 'sticker',
-      content: '🎓',
-      x: 14,
-      y: 6.5,
-      fontSize: 28,
-      fontFamily: 'Cairo',
-      color: '#fde047',
-      effect: 'soft-glow',
-      rotation: -12,
       scale: 1,
       opacity: 1,
     },
@@ -733,47 +500,170 @@ export const CollageStudioView: React.FC = () => {
   // File Input Refs
   const singleSlotFileRef = useRef<HTMLInputElement | null>(null);
   const batchUploadFileRef = useRef<HTMLInputElement | null>(null);
+  const templateClonerFileRef = useRef<HTMLInputElement | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
     setTimeout(() => {
       setToastMsg((prev) => (prev === msg ? null : prev));
-    }, 4000);
+    }, 4500);
   }, []);
 
-  // --- Compute Available Layouts for Current Photo Count ---
-  const availableLayouts = React.useMemo(() => {
-    return generateLayoutsForPhotoCount(numPhotos);
-  }, [numPhotos]);
+  // --- Combine All Curated + Cloned + Procedural Layouts ---
+  const allCombinedLayouts = React.useMemo(() => {
+    const procedural = generateProceduralLayoutsForCount(numPhotos);
+    return [...clonedTemplates, ...MASTER_CURATED_LAYOUTS, ...procedural];
+  }, [clonedTemplates, numPhotos]);
 
   const filteredLayouts = React.useMemo(() => {
-    if (layoutCategory === 'all') return availableLayouts;
-    return availableLayouts.filter((l) => l.category === layoutCategory);
-  }, [availableLayouts, layoutCategory]);
+    return allCombinedLayouts.filter((l) => {
+      if (filterByPhotoCount && l.photoCount !== numPhotos) return false;
+      if (layoutCategory !== 'all' && l.category !== layoutCategory) return false;
+      return true;
+    });
+  }, [allCombinedLayouts, filterByPhotoCount, numPhotos, layoutCategory]);
 
-  const activeLayout: CollageLayoutPreset = React.useMemo(() => {
+  const activeLayoutPreset: CollageLayoutPreset = React.useMemo(() => {
     return (
-      availableLayouts.find((l) => l.id === activeLayoutId) ||
-      availableLayouts[0]
+      allCombinedLayouts.find((l) => l.id === activeLayoutId) ||
+      allCombinedLayouts[0]
     );
-  }, [availableLayouts, activeLayoutId]);
+  }, [allCombinedLayouts, activeLayoutId]);
 
-  // Keep activeLayoutId synced when numPhotos changes
-  useEffect(() => {
-    const prefix = activeLayoutId.split('-').slice(0, -1).join('-') || 'spotlight-royal';
-    const matching = availableLayouts.find((l) => l.id.startsWith(prefix));
-    if (matching) {
-      setActiveLayoutId(matching.id);
-    } else if (availableLayouts[0]) {
-      setActiveLayoutId(availableLayouts[0].id);
-    }
-    if (selectedSlotIdx >= numPhotos) {
+  // Effective slots on stage (either custom-edited slots or preset slots)
+  const effectiveSlots: LayoutSlotDef[] = React.useMemo(() => {
+    return customSlots || activeLayoutPreset.slots;
+  }, [customSlots, activeLayoutPreset]);
+
+  // Select a layout preset
+  const handleSelectLayoutPreset = (preset: CollageLayoutPreset) => {
+    setActiveLayoutId(preset.id);
+    setCustomSlots(null);
+    setNumPhotos(preset.photoCount);
+    if (selectedSlotIdx >= preset.photoCount) {
       setSelectedSlotIdx(0);
     }
-  }, [numPhotos, availableLayouts]);
+  };
 
   // ============================================================================
-  // INTERACTIVE HANDLERS: PAN, ZOOM, ROTATE, SWAP, UPLOAD
+  // TEMPLATE CLONER HANDLERS (UPLOAD ANY TEMPLATE OR CLICK ANY CELL IN SHEET)
+  // ============================================================================
+
+  const handleCloneFromSheetCell = async (sheet: ReferenceTemplateSheet, row: number, col: number) => {
+    setIsCloningTemplate(true);
+    setSelectedSheetCell({ row, col });
+    try {
+      const cellW = 100 / sheet.cols;
+      const cellH = 100 / sheet.rows;
+      // Add slight inner padding so sheet grid lines are ignored
+      const padX = cellW * 0.06;
+      const padY = cellH * 0.06;
+      const cropRect = {
+        x: col * cellW + padX,
+        y: row * cellH + padY,
+        w: cellW - padX * 2,
+        h: cellH - padY * 2,
+      };
+
+      const detectedSlots = await extractSlotsFromTemplateImage(sheet.url, cropRect);
+      if (detectedSlots.length > 0) {
+        const clonedId = `cloned-sheet-${Date.now()}`;
+        const newPreset: CollageLayoutPreset = {
+          id: clonedId,
+          nameAr: `قالب مستنسخ (${detectedSlots.length} صور) #${row * sheet.cols + col + 1}`,
+          nameEn: `Cloned Template (${detectedSlots.length} Photos)`,
+          category: 'cloned',
+          photoCount: detectedSlots.length,
+          badge: 'CLONED ✨',
+          slots: detectedSlots,
+        };
+        setClonedTemplates((prev) => [newPreset, ...prev]);
+        setActiveLayoutId(clonedId);
+        setCustomSlots(detectedSlots);
+        setNumPhotos(detectedSlots.length);
+        setSelectedSlotIdx(0);
+        showToast(
+          isAr
+            ? `تم تحليل واستنساخ القالب بنجاح (${detectedSlots.length} خانات صور) وتطبيقه على اللوحة! 🎯`
+            : `Cloned template with ${detectedSlots.length} slots and applied to canvas!`
+        );
+      } else {
+        showToast(
+          isAr
+            ? 'اختر مربع قالب واضح من اللوحة لاستنساخه.'
+            : 'Select a clear template cell to clone.'
+        );
+      }
+    } finally {
+      setIsCloningTemplate(false);
+    }
+  };
+
+  const handleUploadCustomTemplateFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      setUploadedTemplateUrl(dataUrl);
+      setIsCloningTemplate(true);
+      try {
+        // 1. Try instant client-side computer vision block detector first
+        let slots = await extractSlotsFromTemplateImage(dataUrl);
+
+        // 2. If image is a complex photographic layout, also query Gemini Vision endpoint
+        if (slots.length < 2) {
+          const apiRes = await cloneCollageTemplate(dataUrl);
+          if (apiRes.success && apiRes.data?.slots?.length) {
+            slots = apiRes.data.slots.map((s) => ({
+              x: s.x,
+              y: s.y,
+              w: s.w,
+              h: s.h,
+              shape: (s.shape as SlotShape) || 'rect',
+              isHero: s.isHero,
+            }));
+          }
+        }
+
+        if (slots.length > 0) {
+          const clonedId = `cloned-upload-${Date.now()}`;
+          const newPreset: CollageLayoutPreset = {
+            id: clonedId,
+            nameAr: `تمبليت مرفق مستنسخ (${slots.length} صور)`,
+            nameEn: `Uploaded Cloned Template (${slots.length})`,
+            category: 'cloned',
+            photoCount: slots.length,
+            badge: 'AI CLONED',
+            slots,
+          };
+          setClonedTemplates((prev) => [newPreset, ...prev]);
+          setActiveLayoutId(clonedId);
+          setCustomSlots(slots);
+          setNumPhotos(slots.length);
+          setSelectedSlotIdx(0);
+          showToast(
+            isAr
+              ? `تم تحليل صورة التمبليت المرفقة واستخراج ${slots.length} إطارات صور مطابقة لها تماماً! ✨`
+              : `Extracted ${slots.length} photo frames from your uploaded template!`
+          );
+        } else {
+          showToast(
+            isAr
+              ? 'تم رفع الصورة! إذا كانت لوحة تضم عدة قوالب، انقر على القالب المطلوب داخلها لاستنساخه.'
+              : 'Template image uploaded! Click on a template region to extract its slots.'
+          );
+        }
+      } finally {
+        setIsCloningTemplate(false);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // ============================================================================
+  // INTERACTIVE HANDLERS: PAN, WHEEL ZOOM, FRAME MOVE/RESIZE, SWAP, UPLOAD
   // ============================================================================
 
   const updateSlot = (index: number, updates: Partial<CollagePhotoSlotState>) => {
@@ -787,8 +677,23 @@ export const CollageStudioView: React.FC = () => {
     showToast(isAr ? 'تم تطبيق الفلتر اللوني على جميع صور الكولاج ✨' : 'Filter applied to all photos!');
   };
 
-  // Mouse/Touch Pan inside a photo slot
-  const handleSlotPointerDown = (e: React.PointerEvent, index: number) => {
+  // Mouse Wheel Zoom directly on any photo slot!
+  const handleSlotWheel = (e: React.WheelEvent, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedSlotIdx(index);
+    const currentZoom = photoSlots[index]?.zoom || 1;
+    const delta = e.deltaY < 0 ? 0.12 : -0.12;
+    const nextZoom = Math.max(0.3, Math.min(4.0, Number((currentZoom + delta).toFixed(2))));
+    updateSlot(index, { zoom: nextZoom });
+  };
+
+  // Start dragging either photo Pan OR Frame Geometry Move/Resize
+  const handleSlotPointerDown = (
+    e: React.PointerEvent,
+    index: number,
+    resizeHandle?: 'move' | 'resize-se' | 'resize-e' | 'resize-s' | 'resize-nw'
+  ) => {
     e.stopPropagation();
     setSelectedOverlayId(null);
 
@@ -826,6 +731,22 @@ export const CollageStudioView: React.FC = () => {
     }
 
     setSelectedSlotIdx(index);
+
+    // If in 'edit-frame' mode or user grabbed a resize handle
+    if (stageMode === 'edit-frame' || resizeHandle) {
+      const currentSlots = customSlots ? [...customSlots] : effectiveSlots.map((s) => ({ ...s }));
+      if (!customSlots) setCustomSlots(currentSlots);
+      setFrameDragState({
+        slotIdx: index,
+        mode: resizeHandle || 'move',
+        startX: e.clientX,
+        startY: e.clientY,
+        initialSlot: { ...currentSlots[index] },
+      });
+      return;
+    }
+
+    // Default: Pan photo inside frame
     setIsDraggingPan(true);
     panStartRef.current = {
       x: e.clientX,
@@ -836,17 +757,55 @@ export const CollageStudioView: React.FC = () => {
   };
 
   const handleStagePointerMove = (e: React.PointerEvent) => {
+    // 1. Free Frame Move / Resize
+    if (frameDragState && stageRef.current) {
+      const rect = stageRef.current.getBoundingClientRect();
+      const dxPct = ((e.clientX - frameDragState.startX) / rect.width) * 100;
+      const dyPct = ((e.clientY - frameDragState.startY) / rect.height) * 100;
+      const init = frameDragState.initialSlot;
+
+      setCustomSlots((prev) => {
+        const list = prev ? [...prev] : effectiveSlots.map((s) => ({ ...s }));
+        const target = { ...list[frameDragState.slotIdx] };
+
+        if (frameDragState.mode === 'move') {
+          target.x = Math.max(0, Math.min(100 - target.w, Number((init.x + dxPct).toFixed(1))));
+          target.y = Math.max(0, Math.min(100 - target.h, Number((init.y + dyPct).toFixed(1))));
+        } else if (frameDragState.mode === 'resize-se') {
+          target.w = Math.max(8, Math.min(100 - target.x, Number((init.w + dxPct).toFixed(1))));
+          target.h = Math.max(8, Math.min(100 - target.y, Number((init.h + dyPct).toFixed(1))));
+        } else if (frameDragState.mode === 'resize-e') {
+          target.w = Math.max(8, Math.min(100 - target.x, Number((init.w + dxPct).toFixed(1))));
+        } else if (frameDragState.mode === 'resize-s') {
+          target.h = Math.max(8, Math.min(100 - target.y, Number((init.h + dyPct).toFixed(1))));
+        } else if (frameDragState.mode === 'resize-nw') {
+          const newX = Math.max(0, Math.min(init.x + init.w - 8, Number((init.x + dxPct).toFixed(1))));
+          const newY = Math.max(0, Math.min(init.y + init.h - 8, Number((init.y + dyPct).toFixed(1))));
+          target.w = Number((init.w - (newX - init.x)).toFixed(1));
+          target.h = Number((init.h - (newY - init.y)).toFixed(1));
+          target.x = newX;
+          target.y = newY;
+        }
+
+        list[frameDragState.slotIdx] = target;
+        return list;
+      });
+      return;
+    }
+
+    // 2. Photo Pan inside Frame
     if (isDraggingPan && panStartRef.current) {
       const dx = e.clientX - panStartRef.current.x;
       const dy = e.clientY - panStartRef.current.y;
-      const nextPanX = Math.max(-100, Math.min(100, Math.round(panStartRef.current.initialPanX + dx * 0.45)));
-      const nextPanY = Math.max(-100, Math.min(100, Math.round(panStartRef.current.initialPanY + dy * 0.45)));
+      const nextPanX = Math.max(-150, Math.min(150, Math.round(panStartRef.current.initialPanX + dx * 0.45)));
+      const nextPanY = Math.max(-150, Math.min(150, Math.round(panStartRef.current.initialPanY + dy * 0.45)));
       updateSlot(selectedSlotIdx, { panX: nextPanX, panY: nextPanY });
     } else if (draggingOverlayId && stageRef.current) {
+      // 3. Free Text / Sticker Drag
       const rect = stageRef.current.getBoundingClientRect();
       const relX = ((e.clientX - rect.left) / rect.width) * 100;
       const relY = ((e.clientY - rect.top) / rect.height) * 100;
-      const clampedX = Math.max(5, Math.min(95, Number(relX.toFixed(1))));
+      const clampedX = Math.max(4, Math.min(96, Number(relX.toFixed(1))));
       const clampedY = Math.max(4, Math.min(96, Number(relY.toFixed(1))));
       setOverlays((prev) =>
         prev.map((ov) => (ov.id === draggingOverlayId ? { ...ov, x: clampedX, y: clampedY } : ov))
@@ -857,7 +816,44 @@ export const CollageStudioView: React.FC = () => {
   const handleStagePointerUp = () => {
     setIsDraggingPan(false);
     panStartRef.current = null;
+    setFrameDragState(null);
     setDraggingOverlayId(null);
+  };
+
+  // Add or Delete a Frame Slot dynamically
+  const handleAddCustomFrameSlot = () => {
+    const current = customSlots ? [...customSlots] : effectiveSlots.map((s) => ({ ...s }));
+    if (current.length >= 16) {
+      showToast(isAr ? 'الحد الأقصى 16 إطار صورة في الكولاج.' : 'Max 16 photo slots.');
+      return;
+    }
+    const newSlot: LayoutSlotDef = {
+      x: 30,
+      y: 30,
+      w: 32,
+      h: 32,
+      shape: 'rect',
+    };
+    const updated = [...current, newSlot];
+    setCustomSlots(updated);
+    setNumPhotos(updated.length);
+    setSelectedSlotIdx(updated.length - 1);
+    setStageMode('edit-frame');
+    showToast(
+      isAr
+        ? 'تمت إضافة إطار صورة جديد! اسحبه أو كبره من المقابض الجانبية ✨'
+        : 'Added new photo frame! Drag or resize using handles.'
+    );
+  };
+
+  const handleDeleteSelectedFrameSlot = () => {
+    const current = customSlots ? [...customSlots] : effectiveSlots.map((s) => ({ ...s }));
+    if (current.length <= 1) return;
+    const updated = current.filter((_, idx) => idx !== selectedSlotIdx);
+    setCustomSlots(updated);
+    setNumPhotos(updated.length);
+    setSelectedSlotIdx(Math.max(0, selectedSlotIdx - 1));
+    showToast(isAr ? 'تم حذف الإطار المحدد.' : 'Deleted selected frame.');
   };
 
   // Single Slot Image Upload
@@ -884,11 +880,6 @@ export const CollageStudioView: React.FC = () => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    const countToUse = Math.min(16, Math.max(2, files.length));
-    if (files.length >= 2 && files.length <= 16) {
-      setNumPhotos(countToUse);
-    }
-
     files.slice(0, 16).forEach((file, idx) => {
       const reader = new FileReader();
       reader.onload = () => {
@@ -911,34 +902,19 @@ export const CollageStudioView: React.FC = () => {
     e.target.value = '';
   };
 
-  // Smart Auto-Arrange (Cycles layout & harmonizes colors while keeping locked Hero slot)
+  // Smart Auto-Arrange
   const handleSmartAutoArrange = () => {
-    const currentIdx = availableLayouts.findIndex((l) => l.id === activeLayout.id);
-    const nextLayout = availableLayouts[(currentIdx + 1) % availableLayouts.length];
+    const sameCountLayouts = allCombinedLayouts.filter((l) => l.photoCount === effectiveSlots.length);
+    const pool = sameCountLayouts.length > 0 ? sameCountLayouts : allCombinedLayouts;
+    const currentIdx = pool.findIndex((l) => l.id === activeLayoutPreset.id);
+    const nextLayout = pool[(currentIdx + 1) % pool.length];
     if (nextLayout) {
-      setActiveLayoutId(nextLayout.id);
+      handleSelectLayoutPreset(nextLayout);
     }
-    // Shuffle unlocked photos gently if user wants fresh visual balance
-    setPhotoSlots((prev) => {
-      const next = [...prev];
-      const unlockedIndices: number[] = [];
-      for (let i = 0; i < numPhotos; i++) {
-        if (!next[i].isLocked) unlockedIndices.push(i);
-      }
-      if (unlockedIndices.length > 1) {
-        const firstIdx = unlockedIndices[0];
-        const firstItem = next[firstIdx];
-        for (let i = 0; i < unlockedIndices.length - 1; i++) {
-          next[unlockedIndices[i]] = next[unlockedIndices[i + 1]];
-        }
-        next[unlockedIndices[unlockedIndices.length - 1]] = firstItem;
-      }
-      return next;
-    });
     showToast(
       isAr
-        ? 'تم إعادة التوزيع الذكي مع الحفاظ على الصورة الرئيسية المقفلة 🔒'
-        : 'Smart layout re-arranged while preserving locked hero photo!'
+        ? 'تم التبديل الذكي للتقسيم مع الحفاظ على الصورة الرئيسية المقفلة 🔒'
+        : 'Smart layout switched while preserving locked hero photo!'
     );
   };
 
@@ -1123,14 +1099,13 @@ export const CollageStudioView: React.FC = () => {
       ctx.lineTo(x, y + h / 2);
       ctx.closePath();
     } else {
-      // rect or polaroid inner photo
       const r = Math.min(radius, w / 2, h / 2);
       ctx.roundRect(x, y, w, h, r);
     }
   };
 
   const renderHighResCollageDataUrl = async (): Promise<string | null> => {
-    const scaleFactor = 40; // e.g. 30cm * 40 = 1200px, 40cm * 40 = 1600px
+    const scaleFactor = 40;
     const W = Math.max(800, Math.min(2400, Math.round(canvasWidthCm * scaleFactor)));
     const H = Math.max(800, Math.min(2800, Math.round(canvasHeightCm * scaleFactor)));
 
@@ -1155,12 +1130,28 @@ export const CollageStudioView: React.FC = () => {
       ctx.fillRect(0, 0, W, H);
     }
 
-    // 2. Surface Patterns & Luxury Borders
+    // 2. Draw Seamless SVG Pattern if enabled
+    const patUri = getPatternDataUri(selectedPatternId, patternColor, Math.round((patternScale / 600) * W));
+    if (patUri) {
+      const patImg = await loadImageElement(patUri);
+      if (patImg) {
+        ctx.save();
+        ctx.globalAlpha = patternOpacity;
+        const pat = ctx.createPattern(patImg, 'repeat');
+        if (pat) {
+          ctx.fillStyle = pat;
+          ctx.fillRect(0, 0, W, H);
+        }
+        ctx.restore();
+      }
+    }
+
+    // 3. Double Royal Border
     const m = (outerMargin / 600) * W;
-    if (doubleGoldBorder || surfacePattern === 'luxury-frame') {
+    if (doubleGoldBorder) {
       ctx.save();
       ctx.strokeStyle = borderColor;
-      ctx.lineWidth = Math.max(3, W * 0.006);
+      ctx.lineWidth = Math.max(3, W * 0.005);
       ctx.strokeRect(m, m, W - m * 2, H - m * 2);
       ctx.lineWidth = Math.max(1.5, W * 0.002);
       ctx.setLineDash([12, 8]);
@@ -1168,13 +1159,13 @@ export const CollageStudioView: React.FC = () => {
       ctx.restore();
     }
 
-    // 3. Render Each Slot in Active Layout
+    // 4. Render Each Slot in Effective Layout
     const gapPx = (slotGap / 600) * W;
     const radiusPx = (cornerRadius / 600) * W;
     const frameBorderPx = (borderWidth / 600) * W;
 
-    for (let i = 0; i < activeLayout.slots.length; i++) {
-      const slotDef = activeLayout.slots[i];
+    for (let i = 0; i < effectiveSlots.length; i++) {
+      const slotDef = effectiveSlots[i];
       const slotState = photoSlots[i] || photoSlots[0];
       const shape: SlotShape = slotState.customShape || slotDef.shape || 'rect';
 
@@ -1192,7 +1183,6 @@ export const CollageStudioView: React.FC = () => {
         ctx.translate(-centerX, -centerY);
       }
 
-      // Polaroid white card backing
       let imgBoxX = sx;
       let imgBoxY = sy;
       let imgBoxW = sw;
@@ -1213,16 +1203,13 @@ export const CollageStudioView: React.FC = () => {
         imgBoxH = sh - pad * 3.2;
       }
 
-      // Clip path for photo
       ctx.save();
       drawSlotClipPath(ctx, imgBoxX, imgBoxY, imgBoxW, imgBoxH, shape, radiusPx);
       ctx.clip();
 
-      // Background inside slot
       ctx.fillStyle = '#090d16';
       ctx.fillRect(imgBoxX, imgBoxY, imgBoxW, imgBoxH);
 
-      // Load & Draw Photo with Pan, Zoom, Rotation, Flip, Filter
       const imgEl = await loadImageElement(slotState.imageUrl);
       if (imgEl) {
         ctx.save();
@@ -1233,14 +1220,16 @@ export const CollageStudioView: React.FC = () => {
 
         const boxCx = imgBoxX + imgBoxW / 2;
         const boxCy = imgBoxY + imgBoxH / 2;
-        ctx.translate(boxCx + (slotState.panX / 100) * (imgBoxW * 0.5), boxCy + (slotState.panY / 100) * (imgBoxH * 0.5));
+        ctx.translate(
+          boxCx + (slotState.panX / 100) * (imgBoxW * 0.5),
+          boxCy + (slotState.panY / 100) * (imgBoxH * 0.5)
+        );
         ctx.rotate((slotState.rotation * Math.PI) / 180);
         ctx.scale(
           slotState.zoom * (slotState.flipX ? -1 : 1),
           slotState.zoom * (slotState.flipY ? -1 : 1)
         );
 
-        // Object-cover math
         const imgRatio = imgEl.width / imgEl.height;
         const boxRatio = imgBoxW / imgBoxH;
         let drawW = imgBoxW;
@@ -1257,17 +1246,15 @@ export const CollageStudioView: React.FC = () => {
       }
       ctx.restore();
 
-      // Draw Slot Frame Border
       if (frameBorderPx > 0 && shape !== 'polaroid') {
         ctx.save();
         drawSlotClipPath(ctx, imgBoxX, imgBoxY, imgBoxW, imgBoxH, shape, radiusPx);
         ctx.strokeStyle = slotDef.isHero ? '#fbbf24' : borderColor;
-        ctx.lineWidth = slotDef.isHero ? frameBorderPx * 1.6 : frameBorderPx;
+        ctx.lineWidth = slotDef.isHero ? frameBorderPx * 1.5 : frameBorderPx;
         ctx.stroke();
         ctx.restore();
       }
 
-      // Draw Slot Caption if present
       if (slotState.caption) {
         ctx.save();
         const capY = shape === 'polaroid' ? sy + sh - (sh - imgBoxH) * 0.38 : sy + sh - 18;
@@ -1281,7 +1268,7 @@ export const CollageStudioView: React.FC = () => {
       ctx.restore();
     }
 
-    // 4. Render Free Overlays (Text & Stickers)
+    // 5. Render Free Overlays (Text & Stickers)
     for (const ov of overlays) {
       ctx.save();
       const ox = (ov.x / 100) * W;
@@ -1332,7 +1319,7 @@ export const CollageStudioView: React.FC = () => {
       if (!dataUrl) return;
       const link = document.createElement('a');
       link.href = dataUrl;
-      link.download = `NAGAR_2028_COLLAGE_${canvasWidthCm}x${canvasHeightCm}cm_${numPhotos}Photos_${Date.now()}.png`;
+      link.download = `NAGAR_2028_COLLAGE_${canvasWidthCm}x${canvasHeightCm}cm_${effectiveSlots.length}Photos_${Date.now()}.png`;
       link.click();
 
       addGenerationResult({
@@ -1342,10 +1329,10 @@ export const CollageStudioView: React.FC = () => {
           model: '2028-Collage-Studio',
           aspectRatio: '3:4',
           resolution: '4K',
-          numberOfImages: numPhotos,
-          style: activeLayout.nameEn,
+          numberOfImages: effectiveSlots.length,
+          style: activeLayoutPreset.nameEn,
         },
-        notes: `كولاج ${canvasWidthCm}×${canvasHeightCm} سم (${numPhotos} صور) - ${activeLayout.nameAr}`,
+        notes: `كولاج ${canvasWidthCm}×${canvasHeightCm} سم (${effectiveSlots.length} صور) - ${activeLayoutPreset.nameAr}`,
         aspectRatio: `${canvasWidthCm}:${canvasHeightCm}`,
       });
 
@@ -1372,27 +1359,18 @@ export const CollageStudioView: React.FC = () => {
     }
   };
 
-  // Active selected slot & overlay objects
   const activeSlot = photoSlots[selectedSlotIdx] || photoSlots[0];
   const activeOverlay = overlays.find((ov) => ov.id === selectedOverlayId) || null;
+  const activePatternUri = getPatternDataUri(selectedPatternId, patternColor, patternScale);
 
-  // Helper CSS clip-path for DOM slot shapes
   const getSlotShapeStyle = (shape: SlotShape): React.CSSProperties => {
-    if (shape === 'circle') {
-      return { borderRadius: '9999px' };
-    }
-    if (shape === 'arch') {
-      return { borderRadius: '999px 999px 16px 16px' };
-    }
+    if (shape === 'circle') return { borderRadius: '9999px' };
+    if (shape === 'arch') return { borderRadius: '999px 999px 16px 16px' };
     if (shape === 'hexagon') {
-      return {
-        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
-      };
+      return { clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' };
     }
     if (shape === 'diamond') {
-      return {
-        clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
-      };
+      return { clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' };
     }
     return { borderRadius: `${cornerRadius}px` };
   };
@@ -1419,6 +1397,13 @@ export const CollageStudioView: React.FC = () => {
         className="hidden"
         onChange={handleBatchUpload}
       />
+      <input
+        ref={templateClonerFileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleUploadCustomTemplateFile}
+      />
 
       {/* =================================================================== */}
       {/* TOP BAR: STUDIO HEADER & QUICK EXPORT ACTIONS                       */}
@@ -1428,7 +1413,7 @@ export const CollageStudioView: React.FC = () => {
           <div className="flex items-center gap-3">
             <LayoutGrid className="w-6 h-6 text-amber-400 shrink-0" />
             <h1 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight">
-              {isAr ? 'استوديو الكولاج الذكي 2028 (AI Smart Collage Studio)' : '2028 AI Photo Collage Studio'}
+              {isAr ? 'استوديو الكولاج الذكي 2028 (AI Smart Collage & Template Cloner)' : '2028 AI Photo Collage Studio'}
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1">
@@ -1436,11 +1421,17 @@ export const CollageStudioView: React.FC = () => {
               {canvasWidthCm} × {canvasHeightCm} cm
             </span>
             <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums">{numPhotos} {isAr ? 'صور نشطة' : 'Active Photos'}</span>
+            <span className="font-mono tabular-nums">
+              {effectiveSlots.length} {isAr ? 'إطارات نشطة' : 'Active Frames'}
+            </span>
             <span aria-hidden="true">·</span>
-            <span>{isAr ? activeLayout.nameAr : activeLayout.nameEn}</span>
+            <span>{isAr ? activeLayoutPreset.nameAr : activeLayoutPreset.nameEn}</span>
             <span aria-hidden="true">·</span>
-            <span>{isAr ? 'اسحب أي صورة لتحريكها أو نص لتغيير مكانه' : 'Drag any photo to pan or text to move'}</span>
+            <span>
+              {isAr
+                ? 'استخدم بكرة الماوس للتكبير/التصغير الفوري، أو اسحب لتحريك الصور والإطارات'
+                : 'Scroll wheel on any photo to zoom, drag to pan or resize frames'}
+            </span>
           </div>
         </div>
 
@@ -1448,11 +1439,20 @@ export const CollageStudioView: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={() => setActiveToolTab('cloner')}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-950/70 hover:bg-purple-900 text-purple-200 text-xs font-bold border border-purple-500/40 transition-colors whitespace-nowrap shrink-0"
+          >
+            <ScanLine className="w-4 h-4 text-purple-400" />
+            <span>{isAr ? 'استنساخ تمبليت من صورة ✨' : 'Clone Template Image'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => batchUploadFileRef.current?.click()}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold border border-slate-700 transition-colors whitespace-nowrap shrink-0"
           >
             <Upload className="w-4 h-4 text-amber-400" />
-            <span>{isAr ? 'رفع مجموعة صور' : 'Batch Upload Photos'}</span>
+            <span>{isAr ? 'رفع مجموعة صور' : 'Batch Upload'}</span>
           </button>
 
           <button
@@ -1462,16 +1462,6 @@ export const CollageStudioView: React.FC = () => {
           >
             <RefreshCw className="w-4 h-4 text-cyan-400" />
             <span>{isAr ? 'توزيع ذكي سحري' : 'AI Auto-Arrange'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSendToStudio('print-prep')}
-            disabled={isExporting}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-colors whitespace-nowrap shrink-0"
-          >
-            <Printer className="w-4 h-4 text-emerald-400" />
-            <span>{isAr ? 'إرسال للمطبعة' : 'Send to Print'}</span>
           </button>
 
           <button
@@ -1507,12 +1497,13 @@ export const CollageStudioView: React.FC = () => {
         {/* ZONE 1 (5 COLS): MULTI-TAB CREATIVE LIBRARY & CONTROLS            */}
         {/* ================================================================= */}
         <div className="xl:col-span-5 bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden">
-          {/* Navigation Tabs */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 border-b border-slate-800 bg-[#080c14] p-1 gap-1">
+          {/* Navigation Tabs (7 Tabs including Template Cloner!) */}
+          <div className="grid grid-cols-4 sm:grid-cols-7 border-b border-slate-800 bg-[#080c14] p-1 gap-1">
             {[
-              { id: 'layouts', labelAr: 'القوالب', labelEn: 'Layouts', icon: LayoutGrid },
-              { id: 'photos', labelAr: 'الصور', labelEn: 'Photos', icon: ImageIcon },
-              { id: 'backgrounds', labelAr: 'الخلفيات', labelEn: 'Surfaces', icon: Palette },
+              { id: 'layouts', labelAr: 'القوالب (55+)', labelEn: 'Layouts', icon: LayoutGrid },
+              { id: 'cloner', labelAr: 'ناسخ القوالب', labelEn: 'Cloner', icon: ScanLine },
+              { id: 'photos', labelAr: 'تحكم الصور', labelEn: 'Photos', icon: ImageIcon },
+              { id: 'backgrounds', labelAr: 'خلفيات وباترن', labelEn: 'Patterns', icon: Palette },
               { id: 'text', labelAr: 'الخطوط', labelEn: 'Fonts', icon: Type },
               { id: 'stickers', labelAr: 'استيكرات', labelEn: 'Stickers', icon: Smile },
               { id: 'ai', labelAr: 'الذكاء ✨', labelEn: 'AI Magic', icon: Sparkles },
@@ -1524,7 +1515,7 @@ export const CollageStudioView: React.FC = () => {
                   key={t.id}
                   type="button"
                   onClick={() => setActiveToolTab(t.id as any)}
-                  className={`flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl text-[11px] font-bold transition-all whitespace-nowrap ${
+                  className={`flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl text-[10px] font-bold transition-all whitespace-nowrap ${
                     active
                       ? 'bg-amber-500 text-slate-950 shadow-sm'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -1537,32 +1528,50 @@ export const CollageStudioView: React.FC = () => {
             })}
           </div>
 
-          <div className="p-4 sm:p-5 space-y-5 max-h-[760px] overflow-y-auto">
+          <div className="p-4 sm:p-5 space-y-5 max-h-[780px] overflow-y-auto">
             {/* ------------------------------------------------------------- */}
-            {/* TAB 1: LAYOUTS, PHOTO COUNT & GRID GEOMETRY                   */}
+            {/* TAB 1: MASSIVE 55+ LAYOUT LIBRARY (CLUSTERS, SCRAPBOOK, MODULAR) */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'layouts' && (
-              <div className="space-y-5">
-                {/* Smart Photo Count Selector (2 to 16 Photos) */}
-                <div className="space-y-2">
+              <div className="space-y-4">
+                {/* Filter by Photo Count Toggle + Number Picker */}
+                <div className="p-3 rounded-xl bg-[#090d16] border border-slate-800 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-200">
-                      {isAr ? 'عدد الصور في الكولاج (2 إلى 16 صورة)' : 'Number of Photos (2 to 16)'}
-                    </label>
-                    <span className="text-xs font-mono tabular-nums font-bold text-amber-400">
-                      {numPhotos} {isAr ? 'صور' : 'Photos'}
+                    <span className="text-xs font-bold text-slate-200">
+                      {isAr ? 'عدد الصور وتصفية القوالب:' : 'Photo Count & Filter:'}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setFilterByPhotoCount(!filterByPhotoCount)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                        filterByPhotoCount
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                          : 'bg-slate-800 border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {filterByPhotoCount
+                        ? isAr
+                          ? `مصفى لـ ${numPhotos} صور فقط`
+                          : `Filtered: ${numPhotos} Photos`
+                        : isAr
+                        ? 'عرض كل القوالب (55+ قالب)'
+                        : 'Showing All 55+ Templates'}
+                    </button>
                   </div>
-                  <div className="grid grid-cols-6 sm:grid-cols-11 gap-1.5">
+
+                  <div className="grid grid-cols-6 sm:grid-cols-11 gap-1">
                     {[2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16].map((cnt) => (
                       <button
                         key={cnt}
                         type="button"
-                        onClick={() => setNumPhotos(cnt)}
-                        className={`py-1.5 rounded-lg text-xs font-mono tabular-nums font-bold border transition-all ${
-                          numPhotos === cnt
-                            ? 'border-amber-400 bg-amber-500 text-slate-950 shadow-sm'
-                            : 'border-slate-800 bg-[#090d16] text-slate-300 hover:border-slate-700'
+                        onClick={() => {
+                          setNumPhotos(cnt);
+                          setFilterByPhotoCount(true);
+                        }}
+                        className={`py-1 rounded-lg text-xs font-mono tabular-nums font-bold border transition-all ${
+                          numPhotos === cnt && filterByPhotoCount
+                            ? 'border-amber-400 bg-amber-500 text-slate-950'
+                            : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
                         }`}
                       >
                         {cnt}
@@ -1571,54 +1580,31 @@ export const CollageStudioView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Aspect Ratio & Print Size Presets */}
-                <div className="space-y-2 pt-3 border-t border-slate-800/80">
-                  <label className="block text-xs font-bold text-slate-200">
-                    {isAr ? 'مقاس اللوحة ونسبة الأبعاد (Print & Social Dimensions)' : 'Canvas Size & Aspect Ratio'}
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {ASPECT_PRESETS.map((asp) => (
-                      <button
-                        key={asp.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedAspectId(asp.id);
-                          setCanvasWidthCm(asp.wCm);
-                          setCanvasHeightCm(asp.hCm);
-                        }}
-                        className={`px-3 py-2 rounded-xl text-right border text-xs transition-all ${
-                          selectedAspectId === asp.id
-                            ? 'border-amber-500/80 bg-amber-500/15 text-amber-200 font-bold'
-                            : 'border-slate-800 bg-[#090d16] text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <div className="truncate">{asp.nameAr}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Layout Category Filter */}
-                <div className="space-y-2 pt-3 border-t border-slate-800/80">
-                  <label className="block text-xs font-bold text-slate-200">
-                    {isAr ? 'مكتبة التقسيمات الذكية 2028 (Layout Templates)' : '2028 Layout Templates'}
-                  </label>
+                {/* Layout Category Filter (Includes the 3 Reference Styles!) */}
+                <div className="space-y-2">
                   <div className="flex flex-wrap gap-1.5">
                     {[
-                      { id: 'all', labelAr: 'الكل' },
+                      { id: 'all', labelAr: 'كل القوالب (55+)' },
+                      { id: 'cluster', labelAr: 'كلاستر جداري (13 Cluster)' },
+                      { id: 'scrapbook', labelAr: 'سكرابوكينج (15 Scrapbook)' },
+                      { id: 'bento', labelAr: 'معماري وموندريان (20 Modular)' },
                       { id: 'royal', labelAr: 'ملكي وتخرج' },
-                      { id: 'bento', labelAr: 'بينتو 2028' },
-                      { id: 'editorial', labelAr: 'بولارويد ومجلات' },
+                      { id: 'editorial', labelAr: 'بولارويد' },
                       { id: 'geometric', labelAr: 'أشكال هندسية' },
-                      { id: 'classic', labelAr: 'شبكة متوازنة' },
+                      ...(clonedTemplates.length > 0
+                        ? [{ id: 'cloned', labelAr: `قوالبي المستنسخة (${clonedTemplates.length})` }]
+                        : []),
                     ].map((cat) => (
                       <button
                         key={cat.id}
                         type="button"
-                        onClick={() => setLayoutCategory(cat.id as LayoutCategory)}
+                        onClick={() => {
+                          setLayoutCategory(cat.id as LayoutCategory);
+                          if (cat.id !== 'all') setFilterByPhotoCount(false);
+                        }}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap ${
                           layoutCategory === cat.id
-                            ? 'bg-slate-200 text-slate-950'
+                            ? 'bg-amber-500 text-slate-950 shadow-sm'
                             : 'bg-[#090d16] text-slate-400 hover:text-slate-200 border border-slate-800'
                         }`}
                       >
@@ -1628,21 +1614,20 @@ export const CollageStudioView: React.FC = () => {
                   </div>
 
                   {/* Visual Layout Mini-Previews Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1 max-h-[340px] overflow-y-auto pr-1">
                     {filteredLayouts.map((layout) => {
-                      const isSelected = activeLayout.id === layout.id;
+                      const isSelected = activeLayoutPreset.id === layout.id && !customSlots;
                       return (
                         <button
                           key={layout.id}
                           type="button"
-                          onClick={() => setActiveLayoutId(layout.id)}
-                          className={`group p-2.5 rounded-xl border text-right transition-all flex flex-col gap-2 ${
+                          onClick={() => handleSelectLayoutPreset(layout)}
+                          className={`group p-2 rounded-xl border text-right transition-all flex flex-col gap-1.5 ${
                             isSelected
-                              ? 'border-amber-400 bg-amber-500/10'
+                              ? 'border-amber-400 bg-amber-500/15 ring-1 ring-amber-400/50'
                               : 'border-slate-800 bg-[#090d16] hover:border-slate-700'
                           }`}
                         >
-                          {/* Mini Wireframe Diagram */}
                           <div className="w-full aspect-[4/3] bg-slate-950 rounded-lg relative overflow-hidden border border-slate-800/80">
                             {layout.slots.map((s, idx) => (
                               <div
@@ -1657,20 +1642,21 @@ export const CollageStudioView: React.FC = () => {
                                       ? '999px'
                                       : s.shape === 'arch'
                                       ? '999px 999px 2px 2px'
-                                      : '3px',
+                                      : '2px',
                                 }}
                                 className={`absolute border transition-colors ${
                                   s.isHero
-                                    ? 'bg-amber-500/40 border-amber-400'
-                                    : 'bg-slate-800/90 border-slate-600 group-hover:border-slate-500'
+                                    ? 'bg-amber-500/45 border-amber-400'
+                                    : 'bg-sky-400/25 border-sky-300/60 group-hover:border-amber-300'
                                 }`}
                               />
                             ))}
-                          </div>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-[11px] font-bold text-slate-200 truncate">
-                              {isAr ? layout.nameAr : layout.nameEn}
+                            <span className="absolute bottom-1 left-1 px-1.5 py-0.2 rounded bg-slate-950/90 text-[9px] font-mono tabular-nums font-bold text-amber-300">
+                              {layout.photoCount}P
                             </span>
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-200 truncate w-full">
+                            {isAr ? layout.nameAr : layout.nameEn}
                           </div>
                         </button>
                       );
@@ -1678,17 +1664,33 @@ export const CollageStudioView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Grid Geometry Sliders (Gap, Margin, Radius, Border) */}
+                {/* Aspect Ratio & Grid Geometry Sliders */}
                 <div className="space-y-3 pt-3 border-t border-slate-800/80">
-                  <h4 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{isAr ? 'ضبط المسافات والحواف والإطارات' : 'Spacing, Corners & Borders'}</span>
-                  </h4>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {ASPECT_PRESETS.map((asp) => (
+                      <button
+                        key={asp.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedAspectId(asp.id);
+                          setCanvasWidthCm(asp.wCm);
+                          setCanvasHeightCm(asp.hCm);
+                        }}
+                        className={`px-2 py-1.5 rounded-lg text-center border text-[10px] transition-all truncate ${
+                          selectedAspectId === asp.id
+                            ? 'border-amber-500 bg-amber-500/15 text-amber-200 font-bold'
+                            : 'border-slate-800 bg-[#090d16] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {asp.nameAr}
+                      </button>
+                    ))}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                        <span>{isAr ? 'المسافة بين الصور (Gap)' : 'Photo Gap'}</span>
+                        <span>{isAr ? 'المسافة البينية (Gap)' : 'Gap'}</span>
                         <span className="font-mono tabular-nums text-amber-300">{slotGap}px</span>
                       </div>
                       <input
@@ -1703,7 +1705,7 @@ export const CollageStudioView: React.FC = () => {
 
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                        <span>{isAr ? 'استدارة الحواف (Radius)' : 'Corner Radius'}</span>
+                        <span>{isAr ? 'استدارة الحواف (Radius)' : 'Radius'}</span>
                         <span className="font-mono tabular-nums text-amber-300">{cornerRadius}px</span>
                       </div>
                       <input
@@ -1724,7 +1726,7 @@ export const CollageStudioView: React.FC = () => {
                       <input
                         type="range"
                         min={0}
-                        max={8}
+                        max={10}
                         value={borderWidth}
                         onChange={(e) => setBorderWidth(Number(e.target.value))}
                         className="w-full accent-amber-500"
@@ -1751,15 +1753,194 @@ export const CollageStudioView: React.FC = () => {
             )}
 
             {/* ------------------------------------------------------------- */}
-            {/* TAB 2: SMART PHOTO MANIPULATION (PAN, ZOOM, ROTATE, FILTERS)  */}
+            {/* TAB 2: AI & VISION TEMPLATE CLONER ("ارفق تمبليت يعملي زيه")   */}
+            {/* ------------------------------------------------------------- */}
+            {activeToolTab === 'cloner' && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-gradient-to-br from-purple-950/40 via-[#090d16] to-[#090d16] border border-purple-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-purple-200 flex items-center gap-2">
+                      <ScanLine className="w-4 h-4 text-purple-400" />
+                      <span>
+                        {isAr
+                          ? 'استنساخ أي قالب كولاج من صورة (AI & Vision Template Cloner)'
+                          : 'Clone Any Collage Template from Image'}
+                      </span>
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    {isAr
+                      ? 'ارفع أي صورة تمبليت من جهازك (سواء قالب مفرد أو لوحة تضم عدة قوالب مثل الصور المرفقة) ليقوم المحرك البصري باستخراج أماكن وأحجام الخانات وتحويلها لقالب تفاعلي فوراً!'
+                      : 'Upload any template image or pick from the reference sheets below to automatically extract its photo slots!'}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => templateClonerFileRef.current?.click()}
+                    disabled={isCloningTemplate}
+                    className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-900/30 transition-all"
+                  >
+                    {isCloningTemplate ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isAr
+                        ? 'إرفاق صورة تمبليت من جهازك لاستنساخه فوراً'
+                        : 'Upload Template Image to Clone'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Interactive Reference Sheet Explorer (The 3 Uploaded Sheets!) */}
+                <div className="space-y-2.5">
+                  <label className="block text-xs font-bold text-slate-200">
+                    {isAr
+                      ? 'أو انقر على أي قالب داخل اللوحات المرجعية الثلاث المرفقة لاستنساخه:'
+                      : 'Or click any template inside your 3 attached reference sheets:'}
+                  </label>
+
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {PRELOADED_REFERENCE_SHEETS.map((sh) => (
+                      <button
+                        key={sh.id}
+                        type="button"
+                        onClick={() => setSelectedRefSheet(sh)}
+                        className={`p-2.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+                          selectedRefSheet.id === sh.id
+                            ? 'border-amber-400 bg-amber-500/15 text-amber-200'
+                            : 'border-slate-800 bg-[#090d16] text-slate-300 hover:border-slate-700'
+                        }`}
+                      >
+                        <div>
+                          <div className="text-xs font-bold">{sh.nameAr}</div>
+                          <div className="text-[10px] text-slate-400">{sh.descriptionAr}</div>
+                        </div>
+                        <span className="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-slate-900 text-amber-300">
+                          {sh.cols}×{sh.rows}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Interactive Clickable Grid Overlay on the Selected Reference Sheet */}
+                  <div className="p-3 rounded-xl bg-[#090d16] border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-amber-300 font-bold">
+                      <span>
+                        {isAr
+                          ? '👇 انقر على أي قالب في اللوحة بالأسفل لاستخراجه وتطبيقه فوراً:'
+                          : 'Click any template cell below to extract and apply it:'}
+                      </span>
+                      {isCloningTemplate && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    </div>
+
+                    <div className="relative w-full rounded-xl overflow-hidden border border-slate-700 bg-white">
+                      <img
+                        src={selectedRefSheet.url}
+                        alt={selectedRefSheet.nameAr}
+                        className="w-full h-auto block"
+                      />
+                      {/* Interactive Grid Cells */}
+                      <div
+                        style={{
+                          gridTemplateColumns: `repeat(${selectedRefSheet.cols}, minmax(0, 1fr))`,
+                          gridTemplateRows: `repeat(${selectedRefSheet.rows}, minmax(0, 1fr))`,
+                        }}
+                        className="absolute inset-0 grid"
+                      >
+                        {Array.from({ length: selectedRefSheet.rows * selectedRefSheet.cols }, (_, idx) => {
+                          const r = Math.floor(idx / selectedRefSheet.cols);
+                          const c = idx % selectedRefSheet.cols;
+                          const isCellSel =
+                            selectedSheetCell.row === r && selectedSheetCell.col === c;
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => handleCloneFromSheetCell(selectedRefSheet, r, c)}
+                              className={`border border-purple-500/30 hover:bg-purple-500/25 transition-all flex items-end justify-end p-1 group ${
+                                isCellSel ? 'ring-2 ring-inset ring-amber-400 bg-amber-500/20' : ''
+                              }`}
+                              title={isAr ? 'انقر لاستنساخ هذا القالب' : 'Click to clone this template'}
+                            >
+                              <span className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded bg-slate-950/90 text-amber-300 text-[9px] font-bold shadow">
+                                {isAr ? 'استنساخ ✨' : 'Clone'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------- */}
+            {/* TAB 3: UPGRADED PHOTO & FRAME CONTROL ENGINE                  */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'photos' && (
-              <div className="space-y-5">
+              <div className="space-y-4">
+                {/* Mode Switcher: Pan/Zoom Photo Inside Slot vs Move/Resize Slot Frame */}
+                <div className="p-3 rounded-xl bg-[#090d16] border border-slate-800 space-y-2">
+                  <span className="block text-xs font-bold text-slate-200">
+                    {isAr ? 'وضع التحكم بالماوس على اللوحة:' : 'Canvas Mouse Interaction Mode:'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStageMode('pan-photo')}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${
+                        stageMode === 'pan-photo'
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
+                          : 'bg-slate-900 text-slate-300 border-slate-800'
+                      }`}
+                    >
+                      <Move className="w-3.5 h-3.5" />
+                      <span>{isAr ? 'تحريك وتكبير الصورة' : 'Pan & Zoom Photo'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStageMode('edit-frame')}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${
+                        stageMode === 'edit-frame'
+                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow'
+                          : 'bg-slate-900 text-slate-300 border-slate-800'
+                      }`}
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>{isAr ? 'تحريك وتصغير/تكبير الإطار' : 'Move & Resize Frame'}</span>
+                    </button>
+                  </div>
+
+                  {stageMode === 'edit-frame' && (
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={handleAddCustomFrameSlot}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center justify-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isAr ? 'إضافة إطار صورة جديد' : 'Add Frame Slot'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedFrameSlot}
+                        className="py-1.5 px-3 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>{isAr ? 'حذف الإطار' : 'Delete Slot'}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Slot Selector Strip */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-200">
-                      {isAr ? 'اختر الخانة لتعديل صورتها أو تحريكها:' : 'Select Slot to Edit:'}
+                      {isAr ? 'اختر الخانة لتعديل صورتها:' : 'Select Slot to Edit:'}
                     </span>
                     <button
                       type="button"
@@ -1767,13 +1948,13 @@ export const CollageStudioView: React.FC = () => {
                       className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      <span>{isAr ? 'رفع عدة صور معاً' : 'Upload Multiple'}</span>
+                      <span>{isAr ? 'رفع عدة صور دفعة واحدة' : 'Batch Upload'}</span>
                     </button>
                   </div>
 
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                    {Array.from({ length: numPhotos }, (_, idx) => {
-                      const slot = photoSlots[idx];
+                    {Array.from({ length: effectiveSlots.length }, (_, idx) => {
+                      const slot = photoSlots[idx] || photoSlots[0];
                       const isSel = selectedSlotIdx === idx;
                       return (
                         <button
@@ -1837,7 +2018,15 @@ export const CollageStudioView: React.FC = () => {
                         }`}
                       >
                         <ArrowLeftRight className="w-3.5 h-3.5" />
-                        <span>{swapSourceIdx === selectedSlotIdx ? (isAr ? 'انقر على خانة أخرى' : 'Click target') : (isAr ? 'تبديل مكانها' : 'Swap')}</span>
+                        <span>
+                          {swapSourceIdx === selectedSlotIdx
+                            ? isAr
+                              ? 'انقر على خانة أخرى'
+                              : 'Click target'
+                            : isAr
+                            ? 'تبديل مكانها'
+                            : 'Swap'}
+                        </span>
                       </button>
 
                       <button
@@ -1848,24 +2037,25 @@ export const CollageStudioView: React.FC = () => {
                             ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
                             : 'bg-slate-800 border-slate-700 text-slate-400'
                         }`}
-                        title={isAr ? 'قفل الصورة كعنصر أساسي' : 'Lock Hero Photo'}
                       >
                         {activeSlot.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
 
-                  {/* Pan X / Y & Zoom Sliders */}
+                  {/* Zoom (0.3x to 4.0x) + Pan X / Pan Y */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                        <span>{isAr ? 'التكبير (Zoom)' : 'Zoom'}</span>
-                        <span className="font-mono tabular-nums text-amber-300">{activeSlot.zoom.toFixed(2)}x</span>
+                        <span>{isAr ? 'تصغير / تكبير (Zoom)' : 'Zoom'}</span>
+                        <span className="font-mono tabular-nums text-amber-300">
+                          {Math.round(activeSlot.zoom * 100)}%
+                        </span>
                       </div>
                       <input
                         type="range"
-                        min={0.6}
-                        max={2.8}
+                        min={0.3}
+                        max={3.5}
                         step={0.05}
                         value={activeSlot.zoom}
                         onChange={(e) => updateSlot(selectedSlotIdx, { zoom: Number(e.target.value) })}
@@ -1875,13 +2065,13 @@ export const CollageStudioView: React.FC = () => {
 
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                        <span>{isAr ? 'إزاحة أفقية (Pan X)' : 'Pan X'}</span>
+                        <span>{isAr ? 'سحب أفقي (Pan X)' : 'Pan X'}</span>
                         <span className="font-mono tabular-nums text-amber-300">{activeSlot.panX}%</span>
                       </div>
                       <input
                         type="range"
-                        min={-100}
-                        max={100}
+                        min={-150}
+                        max={150}
                         value={activeSlot.panX}
                         onChange={(e) => updateSlot(selectedSlotIdx, { panX: Number(e.target.value) })}
                         className="w-full accent-amber-500"
@@ -1890,13 +2080,13 @@ export const CollageStudioView: React.FC = () => {
 
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                        <span>{isAr ? 'إزاحة رأسية (Pan Y)' : 'Pan Y'}</span>
+                        <span>{isAr ? 'سحب رأسي (Pan Y)' : 'Pan Y'}</span>
                         <span className="font-mono tabular-nums text-amber-300">{activeSlot.panY}%</span>
                       </div>
                       <input
                         type="range"
-                        min={-100}
-                        max={100}
+                        min={-150}
+                        max={150}
                         value={activeSlot.panY}
                         onChange={(e) => updateSlot(selectedSlotIdx, { panY: Number(e.target.value) })}
                         className="w-full accent-amber-500"
@@ -1904,9 +2094,17 @@ export const CollageStudioView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Rotate, Flip & Reset */}
+                  {/* Rotate, Flip, Fit/Cover Presets */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updateSlot(selectedSlotIdx, { zoom: 0.65, panX: 0, panY: 0 })}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold flex items-center gap-1"
+                      >
+                        <Minimize2 className="w-3.5 h-3.5" />
+                        <span>{isAr ? 'تصغير لاحتواء الكل' : 'Fit Whole'}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => updateSlot(selectedSlotIdx, { rotation: activeSlot.rotation - 90 })}
@@ -1931,7 +2129,6 @@ export const CollageStudioView: React.FC = () => {
                         }`}
                       >
                         <FlipHorizontal className="w-3.5 h-3.5" />
-                        <span>{isAr ? 'قلب أفقي' : 'Flip H'}</span>
                       </button>
                       <button
                         type="button"
@@ -1941,7 +2138,6 @@ export const CollageStudioView: React.FC = () => {
                         }`}
                       >
                         <FlipVertical className="w-3.5 h-3.5" />
-                        <span>{isAr ? 'قلب رأسي' : 'Flip V'}</span>
                       </button>
                     </div>
 
@@ -1959,14 +2155,14 @@ export const CollageStudioView: React.FC = () => {
                       }
                       className="text-[11px] text-slate-400 hover:text-amber-300 underline"
                     >
-                      {isAr ? 'إعادة ضبط التمركز' : 'Reset Position'}
+                      {isAr ? 'إعادة ضبط 100%' : 'Reset 100%'}
                     </button>
                   </div>
 
-                  {/* Custom Shape Override for this slot */}
+                  {/* Custom Shape Override */}
                   <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
                     <span className="block text-[11px] font-bold text-slate-300">
-                      {isAr ? 'شكل إطار هذه الخانة (Slot Shape):' : 'Slot Frame Shape:'}
+                      {isAr ? 'تغيير شكل إطار هذه الخانة:' : 'Slot Frame Shape:'}
                     </span>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                       {(
@@ -1980,7 +2176,7 @@ export const CollageStudioView: React.FC = () => {
                         ] as { id: SlotShape; labelAr: string }[]
                       ).map((sh) => {
                         const currentShape =
-                          activeSlot.customShape || activeLayout.slots[selectedSlotIdx]?.shape || 'rect';
+                          activeSlot.customShape || effectiveSlots[selectedSlotIdx]?.shape || 'rect';
                         return (
                           <button
                             key={sh.id}
@@ -1998,34 +2194,20 @@ export const CollageStudioView: React.FC = () => {
                       })}
                     </div>
                   </div>
-
-                  {/* Per-Slot Caption */}
-                  <div className="pt-2 border-t border-slate-800/80">
-                    <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                      {isAr ? 'تسمية توضيحية أسفل الصورة (Caption):' : 'Photo Caption:'}
-                    </label>
-                    <input
-                      type="text"
-                      value={activeSlot.caption || ''}
-                      onChange={(e) => updateSlot(selectedSlotIdx, { caption: e.target.value })}
-                      placeholder={isAr ? 'مثال: الخريج الأساسي / صورة العائلة...' : 'Enter caption...'}
-                      className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-1.5 text-xs text-slate-100"
-                    />
-                  </div>
                 </div>
 
                 {/* Photo Filters */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-200">
-                      {isAr ? 'الفلاتر اللونية للصورة (Photo Filters):' : 'Photo Color Filters:'}
+                      {isAr ? 'الفلاتر اللونية للصورة:' : 'Photo Color Filters:'}
                     </span>
                     <button
                       type="button"
                       onClick={() => applyFilterToAllSlots(activeSlot.filter)}
                       className="text-[11px] text-amber-400 hover:underline font-bold"
                     >
-                      {isAr ? 'تعميم الفلتر على كل الصور' : 'Apply to All Photos'}
+                      {isAr ? 'تعميم الفلتر على كل الصور' : 'Apply to All'}
                     </button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -2049,14 +2231,15 @@ export const CollageStudioView: React.FC = () => {
             )}
 
             {/* ------------------------------------------------------------- */}
-            {/* TAB 3: COLORS, 2028 GRADIENTS & SURFACE TEXTURES              */}
+            {/* TAB 4: EXPANDED 18 BACKGROUNDS & 12 SEAMLESS PATTERNS         */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'backgrounds' && (
               <div className="space-y-5">
+                {/* 18 Curated Gradients & Palettes */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-slate-200">
-                      {isAr ? 'تدرجات وألوان 2028 الفاخرة (Luxury Gradients)' : '2028 Luxury Gradients'}
+                      {isAr ? 'مكتبة الخلفيات والتدرجات الموسعة (18 خلفية)' : '18 Curated Backgrounds'}
                     </label>
                     {customBgImageUrl && (
                       <button
@@ -2069,8 +2252,8 @@ export const CollageStudioView: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {BACKGROUND_PRESETS.map((bg) => {
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[240px] overflow-y-auto pr-1">
+                    {EXPANDED_BACKGROUNDS.map((bg) => {
                       const isSel = !customBgImageUrl && selectedBgPreset.id === bg.id;
                       return (
                         <button
@@ -2080,41 +2263,41 @@ export const CollageStudioView: React.FC = () => {
                             setCustomBgImageUrl(null);
                             setSelectedBgPreset(bg);
                             setBorderColor(bg.borderDefault);
+                            setPatternColor(bg.borderDefault);
                           }}
-                          className={`p-2.5 rounded-xl border flex items-center gap-3 text-right transition-all ${
+                          className={`p-2 rounded-xl border flex items-center gap-2 text-right transition-all ${
                             isSel
-                              ? 'border-amber-400 bg-amber-500/10'
+                              ? 'border-amber-400 bg-amber-500/15'
                               : 'border-slate-800 bg-[#090d16] hover:border-slate-700'
                           }`}
                         >
                           <div
-                            className="w-9 h-9 rounded-lg shrink-0 border border-white/20 shadow-inner"
+                            className="w-7 h-7 rounded-lg shrink-0 border border-white/20 shadow-inner"
                             style={{ background: bg.cssGradient }}
                           />
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-slate-200 truncate">
-                              {isAr ? bg.nameAr : bg.nameEn}
-                            </div>
-                          </div>
+                          <span className="text-[11px] font-bold text-slate-200 truncate">
+                            {isAr ? bg.nameAr : bg.nameEn}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Surface Patterns & Borders */}
-                <div className="space-y-2 pt-3 border-t border-slate-800/80">
-                  <label className="block text-xs font-bold text-slate-200">
-                    {isAr ? 'النقوش الزخرفية والإطار الملكي (Surface Pattern)' : 'Surface Ornaments & Frame'}
+                {/* 12 Seamless SVG Patterns with Color, Scale & Opacity */}
+                <div className="space-y-3 pt-3 border-t border-slate-800/80">
+                  <label className="block text-xs font-bold text-amber-300">
+                    {isAr ? 'مكتبة الباترن والنقوش الهندسية (12 Seamless Patterns)' : '12 Seamless Patterns'}
                   </label>
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {SURFACE_PATTERNS.map((pat) => (
+                    {SEAMLESS_PATTERNS.map((pat) => (
                       <button
                         key={pat.id}
                         type="button"
-                        onClick={() => setSurfacePattern(pat.id)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
-                          surfacePattern === pat.id
+                        onClick={() => setSelectedPatternId(pat.id)}
+                        className={`px-2.5 py-2 rounded-xl text-[11px] font-bold border transition-all truncate ${
+                          selectedPatternId === pat.id
                             ? 'border-amber-400 bg-amber-500/20 text-amber-300'
                             : 'border-slate-800 bg-[#090d16] text-slate-400 hover:text-slate-200'
                         }`}
@@ -2123,13 +2306,61 @@ export const CollageStudioView: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  {/* Pattern Controls: Color, Opacity, Scale */}
+                  {selectedPatternId !== 'none' && (
+                    <div className="p-3 rounded-xl bg-[#090d16] border border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-slate-400">{isAr ? 'لون الباترن:' : 'Color:'}</span>
+                        <input
+                          type="color"
+                          value={patternColor}
+                          onChange={(e) => setPatternColor(e.target.value)}
+                          className="w-7 h-7 rounded cursor-pointer bg-transparent border-0"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                          <span>{isAr ? 'الشفافية' : 'Opacity'}</span>
+                          <span className="font-mono tabular-nums text-amber-300">
+                            {Math.round(patternOpacity * 100)}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.05}
+                          max={0.75}
+                          step={0.05}
+                          value={patternOpacity}
+                          onChange={(e) => setPatternOpacity(Number(e.target.value))}
+                          className="w-full accent-amber-500"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                          <span>{isAr ? 'حجم النقش' : 'Scale'}</span>
+                          <span className="font-mono tabular-nums text-amber-300">{patternScale}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={16}
+                          max={96}
+                          value={patternScale}
+                          onChange={(e) => setPatternScale(Number(e.target.value))}
+                          className="w-full accent-amber-500"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Border Color & Double Gold Toggle */}
                 <div className="p-3.5 rounded-xl bg-[#090d16] border border-slate-800 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <label className="text-xs font-bold text-slate-300">
-                      {isAr ? 'لون الإطارات والزخارف:' : 'Frame Accent Color:'}
+                      {isAr ? 'لون إطارات الصور:' : 'Frame Border Color:'}
                     </label>
                     <input
                       type="color"
@@ -2148,18 +2379,23 @@ export const CollageStudioView: React.FC = () => {
                         : 'bg-slate-800 border-slate-700 text-slate-400'
                     }`}
                   >
-                    {doubleGoldBorder ? (isAr ? '✓ الإطار الملكي المزدوج مفعل' : '✓ Double Frame On') : (isAr ? 'تفعيل الإطار المزدوج' : 'Enable Double Frame')}
+                    {doubleGoldBorder
+                      ? isAr
+                        ? '✓ الإطار الملكي الخارجي مفعل'
+                        : '✓ Outer Royal Frame On'
+                      : isAr
+                      ? 'تفعيل الإطار الملكي الخارجي'
+                      : 'Enable Outer Frame'}
                   </button>
                 </div>
               </div>
             )}
 
             {/* ------------------------------------------------------------- */}
-            {/* TAB 4: TYPOGRAPHY, ARABIC/ENGLISH FONTS & TEXT EFFECTS        */}
+            {/* TAB 5: TYPOGRAPHY, ARABIC/ENGLISH FONTS & TEXT EFFECTS        */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'text' && (
               <div className="space-y-5">
-                {/* Add New Text Layer Form */}
                 <div className="p-4 rounded-xl bg-[#090d16] border border-slate-800 space-y-3">
                   <h4 className="text-xs font-bold text-amber-300">
                     {isAr ? 'إضافة عنوان أو طبقة نصية حرة الحركة' : 'Add Free-Moving Text Layer'}
@@ -2272,7 +2508,7 @@ export const CollageStudioView: React.FC = () => {
             )}
 
             {/* ------------------------------------------------------------- */}
-            {/* TAB 5: STICKERS, BADGES & ORNAMENTS LIBRARY                   */}
+            {/* TAB 6: STICKERS, BADGES & ORNAMENTS LIBRARY                   */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'stickers' && (
               <div className="space-y-5">
@@ -2302,22 +2538,19 @@ export const CollageStudioView: React.FC = () => {
             )}
 
             {/* ------------------------------------------------------------- */}
-            {/* TAB 6: AI GENERATION (SLOT IMAGE & CUSTOM BACKGROUND)         */}
+            {/* TAB 7: AI GENERATION (SLOT IMAGE & CUSTOM BACKGROUND)         */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'ai' && (
               <div className="space-y-5">
-                {/* 1. Generate AI Image Directly Into Selected Slot */}
                 <div className="p-4 rounded-xl bg-gradient-to-br from-amber-950/30 via-[#090d16] to-[#090d16] border border-amber-500/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4" />
-                      <span>
-                        {isAr
-                          ? `توليد صورة بالذكاء الاصطناعي في الخانة #${selectedSlotIdx + 1}`
-                          : `Generate AI Photo into Slot #${selectedSlotIdx + 1}`}
-                      </span>
-                    </h4>
-                  </div>
+                  <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {isAr
+                        ? `توليد صورة بالذكاء الاصطناعي في الخانة #${selectedSlotIdx + 1}`
+                        : `Generate AI Photo into Slot #${selectedSlotIdx + 1}`}
+                    </span>
+                  </h4>
 
                   <textarea
                     rows={2}
@@ -2331,7 +2564,6 @@ export const CollageStudioView: React.FC = () => {
                     className="w-full rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-xs text-slate-100"
                   />
 
-                  {/* Quick Prompt Suggestions */}
                   <div className="flex flex-wrap gap-1.5">
                     {[
                       'بورتريه خريج بروب التخرج الملكي وإضاءة سينمائية',
@@ -2394,26 +2626,6 @@ export const CollageStudioView: React.FC = () => {
                     className="w-full rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-xs text-slate-100"
                   />
 
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      'Luxury black marble with golden veins and soft bokeh',
-                      'Royal emerald velvet fabric with subtle gold dust',
-                      'Minimalist warm travertine stone architectural background',
-                    ].map((bgSug, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => {
-                          setAiBgPrompt(bgSug);
-                          handleGenerateAiBackground(bgSug);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] text-slate-300 border border-slate-800"
-                      >
-                        + {bgSug.slice(0, 34)}...
-                      </button>
-                    ))}
-                  </div>
-
                   <button
                     type="button"
                     onClick={() => handleGenerateAiBackground()}
@@ -2438,9 +2650,74 @@ export const CollageStudioView: React.FC = () => {
         </div>
 
         {/* ================================================================= */}
-        {/* ZONE 2 (7 COLS): INTERACTIVE STAGE & CONTEXTUAL INSPECTOR         */}
+        {/* ZONE 2 (7 COLS): INTERACTIVE STAGE & FLOATING CONTROLS            */}
         {/* ================================================================= */}
         <div className="xl:col-span-7 flex flex-col items-center space-y-4">
+          {/* Quick Stage Mode Bar */}
+          <div className="w-full flex flex-wrap items-center justify-between gap-2 bg-slate-900/70 border border-slate-800 px-4 py-2.5 rounded-2xl">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStageMode('pan-photo')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  stageMode === 'pan-photo'
+                    ? 'bg-amber-500 text-slate-950 shadow'
+                    : 'bg-slate-800 text-slate-300 hover:text-white'
+                }`}
+              >
+                <Move className="w-3.5 h-3.5" />
+                <span>{isAr ? 'وضع تحريك وتكبير الصور' : 'Pan/Zoom Photos'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStageMode('edit-frame')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  stageMode === 'edit-frame'
+                    ? 'bg-cyan-500 text-slate-950 shadow'
+                    : 'bg-slate-800 text-slate-300 hover:text-white'
+                }`}
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>{isAr ? 'وضع تحجيم وسحب الإطارات بحرية' : 'Resize/Move Frames'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() =>
+                  updateSlot(selectedSlotIdx, { zoom: Math.max(0.3, Number((activeSlot.zoom - 0.15).toFixed(2))) })
+                }
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                title="تصغير الصورة"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="font-mono tabular-nums text-amber-400 text-xs font-bold px-1">
+                {Math.round(activeSlot.zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  updateSlot(selectedSlotIdx, { zoom: Math.min(4.0, Number((activeSlot.zoom + 0.15).toFixed(2))) })
+                }
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                title="تكبير الصورة"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSlot(selectedSlotIdx, { rotation: activeSlot.rotation + 90 })}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                title="تدوير 90 درجة"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
           {/* Interactive Collage Canvas Viewport */}
           <div className="w-full flex justify-center bg-[#060911] border border-slate-800/90 rounded-2xl p-4 sm:p-6 shadow-2xl">
             <div
@@ -2452,38 +2729,22 @@ export const CollageStudioView: React.FC = () => {
                   : selectedBgPreset.cssGradient,
                 padding: `${outerMargin}px`,
               }}
-              className="w-full max-w-[600px] rounded-2xl relative overflow-hidden shadow-2xl transition-all duration-200"
+              className="w-full max-w-[620px] rounded-2xl relative overflow-hidden shadow-2xl transition-all duration-200"
             >
-              {/* Surface Pattern Overlays */}
-              {surfacePattern === 'architectural-grid' && (
-                <div
-                  className="absolute inset-0 pointer-events-none opacity-15"
-                  style={{
-                    backgroundImage: `linear-gradient(to right, ${borderColor} 1px, transparent 1px), linear-gradient(to bottom, ${borderColor} 1px, transparent 1px)`,
-                    backgroundSize: '36px 36px',
-                  }}
-                />
-              )}
-              {surfacePattern === 'subtle-dots' && (
-                <div
-                  className="absolute inset-0 pointer-events-none opacity-20"
-                  style={{
-                    backgroundImage: `radial-gradient(${borderColor} 1.2px, transparent 1.2px)`,
-                    backgroundSize: '20px 20px',
-                  }}
-                />
-              )}
-              {surfacePattern === 'spotlight-rays' && (
+              {/* Seamless SVG Pattern Layer */}
+              {activePatternUri && (
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
-                    background: `radial-gradient(circle at 50% 0%, ${borderColor}33 0%, transparent 65%)`,
+                    backgroundImage: `url("${activePatternUri}")`,
+                    backgroundRepeat: 'repeat',
+                    opacity: patternOpacity,
                   }}
                 />
               )}
 
               {/* Double Royal Gold Border */}
-              {(doubleGoldBorder || surfacePattern === 'luxury-frame') && (
+              {doubleGoldBorder && (
                 <>
                   <div
                     className="absolute inset-3 rounded-xl pointer-events-none"
@@ -2496,32 +2757,10 @@ export const CollageStudioView: React.FC = () => {
                 </>
               )}
 
-              {/* Arabesque Gold Corner Accents */}
-              {surfacePattern === 'arabesque-corners' && (
-                <>
-                  <div
-                    className="absolute top-3 left-3 w-12 h-12 border-t-4 border-l-4 rounded-tl-xl pointer-events-none"
-                    style={{ borderColor }}
-                  />
-                  <div
-                    className="absolute top-3 right-3 w-12 h-12 border-t-4 border-r-4 rounded-tr-xl pointer-events-none"
-                    style={{ borderColor }}
-                  />
-                  <div
-                    className="absolute bottom-3 left-3 w-12 h-12 border-b-4 border-l-4 rounded-bl-xl pointer-events-none"
-                    style={{ borderColor }}
-                  />
-                  <div
-                    className="absolute bottom-3 right-3 w-12 h-12 border-b-4 border-r-4 rounded-br-xl pointer-events-none"
-                    style={{ borderColor }}
-                  />
-                </>
-              )}
-
               {/* =========================================================== */}
-              {/* RENDER ACTIVE LAYOUT SLOTS                                  */}
+              {/* RENDER EFFECTIVE LAYOUT SLOTS                               */}
               {/* =========================================================== */}
-              {activeLayout.slots.map((slotDef, idx) => {
+              {effectiveSlots.map((slotDef, idx) => {
                 const slotState = photoSlots[idx] || photoSlots[0];
                 const shape: SlotShape = slotState.customShape || slotDef.shape || 'rect';
                 const isSelected = selectedSlotIdx === idx;
@@ -2530,15 +2769,16 @@ export const CollageStudioView: React.FC = () => {
 
                 return (
                   <div
-                    key={slotState.id}
+                    key={`${slotState.id}-${idx}`}
                     onPointerDown={(e) => handleSlotPointerDown(e, idx)}
+                    onWheel={(e) => handleSlotWheel(e, idx)}
                     style={{
                       left: `calc(${slotDef.x}% + ${slotGap / 2}px)`,
                       top: `calc(${slotDef.y}% + ${slotGap / 2}px)`,
                       width: `calc(${slotDef.w}% - ${slotGap}px)`,
                       height: `calc(${slotDef.h}% - ${slotGap}px)`,
                       transform: slotDef.tilt ? `rotate(${slotDef.tilt}deg)` : undefined,
-                      zIndex: slotDef.isHero ? 15 : 10 + idx,
+                      zIndex: isSelected ? 25 : slotDef.isHero ? 15 : 10 + idx,
                       ...(shape === 'polaroid'
                         ? {
                             backgroundColor: '#f8fafc',
@@ -2549,7 +2789,11 @@ export const CollageStudioView: React.FC = () => {
                         : {}),
                     }}
                     className={`absolute cursor-grab active:cursor-grabbing group transition-shadow ${
-                      isSelected ? 'ring-2 ring-amber-400 z-20' : ''
+                      isSelected
+                        ? stageMode === 'edit-frame'
+                          ? 'ring-2 ring-cyan-400'
+                          : 'ring-2 ring-amber-400'
+                        : ''
                     } ${isSwapSource ? 'ring-4 ring-cyan-400 animate-pulse' : ''}`}
                   >
                     {/* Inner Clipped Frame */}
@@ -2587,7 +2831,7 @@ export const CollageStudioView: React.FC = () => {
                       <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-85 group-hover:opacity-100 transition-opacity">
                         {slotState.isLocked && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[9px] shadow">
-                            🔒 {slotDef.isHero ? (isAr ? 'الرئيسية' : 'Hero') : ''}
+                            🔒
                           </span>
                         )}
                         <span className="px-1.5 py-0.5 rounded bg-slate-950/80 text-slate-200 font-mono tabular-nums text-[9px] border border-white/10">
@@ -2595,8 +2839,8 @@ export const CollageStudioView: React.FC = () => {
                         </span>
                       </div>
 
-                      {/* Quick Hover Action Overlay */}
-                      <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between">
+                      {/* Quick Hover Mini Toolbar Inside Slot */}
+                      <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between gap-1">
                         <button
                           type="button"
                           onPointerDown={(e) => e.stopPropagation()}
@@ -2607,28 +2851,55 @@ export const CollageStudioView: React.FC = () => {
                           }}
                           className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[10px]"
                         >
-                          {isAr ? 'تغيير' : 'Upload'}
+                          {isAr ? 'صورة' : 'Upload'}
                         </button>
-                        <span className="text-[9px] text-slate-200 truncate px-1">
-                          {isAr ? 'اسحب للتحريك' : 'Drag to pan'}
-                        </span>
-                      </div>
 
-                      {/* Non-polaroid Overlay Caption */}
-                      {slotState.caption && shape !== 'polaroid' && (
-                        <div className="absolute bottom-1.5 inset-x-2 text-center pointer-events-none">
-                          <span className="inline-block px-2.5 py-0.5 rounded-full bg-slate-950/85 text-amber-300 border border-amber-400/40 text-[10px] font-bold shadow">
-                            {slotState.caption}
-                          </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateSlot(idx, { zoom: Math.max(0.3, Number((slotState.zoom - 0.15).toFixed(2))) });
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-slate-900/90 text-white text-[10px] font-bold"
+                          >
+                            -
+                          </button>
+                          <button
+                            type="button"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateSlot(idx, { zoom: Math.min(4.0, Number((slotState.zoom + 0.15).toFixed(2))) });
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-slate-900/90 text-white text-[10px] font-bold"
+                          >
+                            +
+                          </button>
                         </div>
-                      )}
+                      </div>
                     </div>
 
-                    {/* Polaroid Bottom Caption */}
-                    {shape === 'polaroid' && (
-                      <div className="text-center mt-1 text-[11px] font-bold text-slate-900 truncate px-1">
-                        {slotState.caption || slotState.label}
-                      </div>
+                    {/* Interactive Resize Handles when Selected */}
+                    {isSelected && (
+                      <>
+                        {/* Bottom-Right Corner Resize Handle (Always active on selected slot!) */}
+                        <div
+                          onPointerDown={(e) => handleSlotPointerDown(e, idx, 'resize-se')}
+                          title={isAr ? 'اسحب لتكبير أو تصغير حجم الإطار' : 'Drag to resize frame'}
+                          className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-cyan-400 border-2 border-slate-950 shadow-lg cursor-nwse-resize z-30 flex items-center justify-center"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-950" />
+                        </div>
+
+                        {/* Top-Left Corner Resize Handle */}
+                        <div
+                          onPointerDown={(e) => handleSlotPointerDown(e, idx, 'resize-nw')}
+                          title={isAr ? 'اسحب لتغيير حجم الإطار' : 'Drag to resize frame'}
+                          className="absolute -top-2 -left-2 w-4 h-4 rounded-full bg-amber-400 border-2 border-slate-950 shadow-lg cursor-nwse-resize z-30"
+                        />
+                      </>
                     )}
                   </div>
                 );
@@ -2691,7 +2962,7 @@ export const CollageStudioView: React.FC = () => {
           </div>
 
           {/* =============================================================== */}
-          {/* CONTEXTUAL FLOATING INSPECTOR BAR (FOR SELECTED OVERLAY OR SLOT) */}
+          {/* CONTEXTUAL FLOATING INSPECTOR BAR                               */}
           {/* =============================================================== */}
           {activeOverlay ? (
             <div className="w-full bg-slate-900/90 border border-amber-500/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
@@ -2752,42 +3023,19 @@ export const CollageStudioView: React.FC = () => {
                 <Move className="w-4 h-4 text-amber-400" />
                 <span>
                   {isAr
-                    ? `الخانة النشطة #${selectedSlotIdx + 1}: اسحب الصورة بالماوس للتحريك، أو استخدم أزرار التكبير والتدوير السريعة`
-                    : `Active Slot #${selectedSlotIdx + 1}: Drag photo directly to pan, or use quick zoom/rotate controls`}
+                    ? `الخانة #${selectedSlotIdx + 1}: اسحب النقطة الزرقاء بزاوية الإطار لتغيير حجمه، أو حرك عجلة الماوس لتكبير/تصغير الصورة`
+                    : `Slot #${selectedSlotIdx + 1}: Drag cyan corner handle to resize frame, or scroll wheel to zoom photo`}
                 </span>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    updateSlot(selectedSlotIdx, { zoom: Math.max(0.5, Number((activeSlot.zoom - 0.15).toFixed(2))) })
-                  }
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                  title="Zoom Out"
+                  onClick={() => handleSendToStudio('print-prep')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold flex items-center gap-1"
                 >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <span className="font-mono tabular-nums text-amber-400 font-bold px-1">
-                  {Math.round(activeSlot.zoom * 100)}%
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateSlot(selectedSlotIdx, { zoom: Math.min(3, Number((activeSlot.zoom + 0.15).toFixed(2))) })
-                  }
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                  title="Zoom In"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateSlot(selectedSlotIdx, { rotation: activeSlot.rotation + 90 })}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                  title="Rotate 90°"
-                >
-                  <RotateCw className="w-4 h-4" />
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'تجهيز للطباعة' : 'Print Prep'}</span>
                 </button>
                 <button
                   type="button"
