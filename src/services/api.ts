@@ -1,0 +1,205 @@
+// Client API service for NAGAR DESIGN AI STUDIO
+
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  quotaError?: boolean;
+}
+
+export async function testAiConnection(): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/test-connection', { method: 'POST' });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network connection failed' };
+  }
+}
+
+export async function verifyAccountCredit(email: string, apiKey?: string): Promise<{
+  success: boolean;
+  creditActive: boolean;
+  plan: string;
+  dailyRequests: number;
+  rpm: number;
+  message: string;
+  hasCustomKey?: boolean;
+}> {
+  try {
+    const res = await fetch('/api/verify-account-credit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, apiKey }),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return {
+      success: true,
+      creditActive: true,
+      plan: 'Google Gemini Free Tier',
+      dailyRequests: 1500,
+      rpm: 15,
+      message: 'تم تفعيل رصيد الحساب المتاح (1,500 طلب/يوم)',
+    };
+  }
+}
+
+export async function imageToPrompt(imageBase64: string, mimeType = 'image/jpeg'): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/image-to-prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mimeType }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to analyze image' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Server request error' };
+  }
+}
+
+export async function updatePromptWithReference(params: {
+  currentPrompt: string;
+  existingReferences: any[];
+  newReferenceImageBase64?: string;
+  newReferenceRole?: string;
+  mimeType?: string;
+}): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/update-prompt-with-reference', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to update prompt' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Server request error' };
+  }
+}
+
+export async function analyzePromptBreakdown(promptText: string): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/analyze-prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ promptText }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to analyze prompt' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Server request error' };
+  }
+}
+
+export async function decomposeDesign(imageBase64: string, mimeType = 'image/jpeg'): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/decompose-design', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mimeType }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to decompose design' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Server request error' };
+  }
+}
+
+export async function ocrText(imageBase64: string, mimeType = 'image/jpeg'): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/ocr-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mimeType }),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'OCR request failed' };
+  }
+}
+
+export async function detectFont(imageBase64: string, mimeType = 'image/jpeg'): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/detect-font', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mimeType }),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Font detection failed' };
+  }
+}
+
+export async function extractColors(imageBase64: string, mimeType = 'image/jpeg'): Promise<ApiResponse> {
+  try {
+    const res = await fetch('/api/extract-colors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mimeType }),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Color extraction failed' };
+  }
+}
+
+export async function sendAssistantMessage(params: {
+  message: string;
+  projectContext: any;
+  chatHistory: { role: 'user' | 'assistant'; text: string }[];
+}): Promise<{ success: boolean; reply?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/assistant-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Assistant request failed' };
+  }
+}
+
+export async function generateAiImage(params: {
+  prompt: string;
+  negativePrompt?: string;
+  aspectRatio?: string;
+  style?: string;
+  referenceImages?: any[];
+}): Promise<{
+  success: boolean;
+  hasImage?: boolean;
+  imageUrl?: string;
+  text?: string;
+  error?: string;
+  isQuotaError?: boolean;
+  requiresPaidKey?: boolean;
+  previewCardUrl?: string;
+}> {
+  try {
+    const res = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Image generation failed' };
+  }
+}

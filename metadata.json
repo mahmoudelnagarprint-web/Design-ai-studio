@@ -1,0 +1,6 @@
+{
+  "name": "NAGAR DESIGN AI STUDIO",
+  "description": "Professional AI Design Studio for creating, editing, analyzing, decomposing, and preparing designs for print & laser cutting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
