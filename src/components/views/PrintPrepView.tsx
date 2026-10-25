@@ -7,9 +7,6 @@ import {
   AlertTriangle,
   Download,
   FileCheck,
-  Eye,
-  ShieldCheck,
-  Check,
   Upload,
 } from 'lucide-react';
 
@@ -20,7 +17,7 @@ export const PrintPrepView: React.FC = () => {
   const [widthCm, setWidthCm] = useState(activeProject.printSettings?.widthCm || 30);
   const [heightCm, setHeightCm] = useState(activeProject.printSettings?.heightCm || 40);
   const [dpi, setDpi] = useState<72 | 150 | 300 | 600>(activeProject.printSettings?.dpi || 300);
-  const [colorMode, setColorMode] = useState<'RGB' | 'CMYK'>(activeProject.printSettings?.colorMode || 'CMYK');
+  const colorMode: 'RGB' = 'RGB';
   const [bleedMm, setBleedMm] = useState(activeProject.printSettings?.bleedMm || 3);
   const [safeAreaMm, setSafeAreaMm] = useState(activeProject.printSettings?.safeAreaMm || 5);
   const [paperType, setPaperType] = useState(activeProject.printSettings?.paperType || 'Glossy');
@@ -31,6 +28,7 @@ export const PrintPrepView: React.FC = () => {
 
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -44,10 +42,6 @@ export const PrintPrepView: React.FC = () => {
   // Pixels required at current DPI
   const pixelWidth = Math.round((widthCm / 2.54) * dpi);
   const pixelHeight = Math.round((heightCm / 2.54) * dpi);
-
-  // Quality check diagnostics
-  const isDpiGood = dpi >= 300;
-  const isPrintSizeGood = widthCm > 0 && heightCm > 0;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -74,21 +68,36 @@ export const PrintPrepView: React.FC = () => {
   };
 
   const handleDownloadPrintReady = () => {
+    setSaveError(null);
+    if (!currentImage) {
+      setSaveError(isAr ? 'اختر صورة قبل إنشاء ملف PNG.' : 'Select an image before creating a PNG.');
+      return;
+    }
+    if (!Number.isFinite(pixelWidth) || !Number.isFinite(pixelHeight) || pixelWidth <= 0 || pixelHeight <= 0) {
+      setSaveError(isAr ? 'أدخل أبعادًا صالحة أكبر من صفر.' : 'Enter valid dimensions greater than zero.');
+      return;
+    }
     const canvas = document.createElement('canvas');
-    // Generates print canvas with crop marks & bleed
     const bleedPx = Math.round((bleedMm / 25.4) * dpi);
     canvas.width = pixelWidth + bleedPx * 2;
     canvas.height = pixelHeight + bleedPx * 2;
+    if (canvas.width > 10000 || canvas.height > 10000 || canvas.width * canvas.height > 25000000) {
+      setSaveError(isAr ? 'حجم اللوحة الناتجة كبير جدًا للمتصفح. قلّل المقاس أو كثافة البكسل.' : 'The output canvas is too large for the browser. Reduce the size or target pixel density.');
+      return;
+    }
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      setSaveError(isAr ? 'تعذر إنشاء لوحة التصدير.' : 'Could not create the export canvas.');
+      return;
+    }
 
     // Fill background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (!currentImage.startsWith('data:')) img.crossOrigin = 'anonymous';
     img.src = currentImage;
     img.onload = () => {
       // Draw content in bleed area
@@ -126,7 +135,7 @@ export const PrintPrepView: React.FC = () => {
       // Trigger download
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
-      link.download = `NAGAR_PRINT_${widthCm}x${heightCm}cm_${dpi}DPI_${Date.now()}.png`;
+      link.download = `print_${widthCm}x${heightCm}cm_${canvas.width}x${canvas.height}px.png`;
       link.click();
 
       setSaveSuccessMsg(
@@ -135,6 +144,9 @@ export const PrintPrepView: React.FC = () => {
           : `Print file exported at ${canvas.width}x${canvas.height}px with crop marks!`
       );
       setTimeout(() => setSaveSuccessMsg(null), 4000);
+    };
+    img.onerror = () => {
+      setSaveError(isAr ? 'تعذر تحميل الصورة. قد يمنع المصدر الخارجي تحويلها بسبب CORS.' : 'Could not load the image. Its external source may block conversion via CORS.');
     };
   };
 
@@ -149,13 +161,13 @@ export const PrintPrepView: React.FC = () => {
               {isAr ? 'تجهيز التصميم للطباعة (Print Preparation)' : 'Print Preparation Studio'}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-mono font-bold">
-              {widthCm}×{heightCm} cm • {dpi} DPI • {colorMode}
+              {widthCm}×{heightCm} cm • {pixelWidth}×{pixelHeight} px • RGB
             </span>
           </div>
           <p className="text-xs text-slate-400">
             {isAr
-              ? 'ضبط المقاسات بالسنتيمتر، هوامش القص (Bleed)، منطقة الأمان، وتصدير ملفات الطباعة بدقة 300 DPI جاهزة للمطابع.'
-              : 'Configure physical dimensions, bleed margins, safe area, and run pre-flight print checks.'}
+              ? 'إنشاء PNG بأبعاد بكسل مستهدفة مع هوامش وعلامات قص مرئية. هذه الأداة لا تنتج PDF ولا تحول إلى CMYK أو تضمن جاهزية المطبعة.'
+              : 'Create a PNG at target pixel dimensions with visible bleed and crop marks. This tool does not create PDF, convert to CMYK, or certify print readiness.'}
           </p>
         </div>
 
@@ -183,10 +195,17 @@ export const PrintPrepView: React.FC = () => {
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-500/20 transition-all"
           >
             <Download className="w-4 h-4" />
-            <span>{isAr ? 'تحميل ملف الطباعة الجاهز (300 DPI)' : 'Download Print Ready (300 DPI)'}</span>
+            <span>{isAr ? 'تحميل PNG بالأبعاد المستهدفة' : 'Download target-size PNG'}</span>
           </button>
         </div>
       </div>
+
+      <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+        <span>{isAr ? 'قيمة DPI تحدد عدد البكسلات التي ينشئها الملف؛ لا تُكتب كبيانات DPI داخل PNG ولا تقيس دقة الصورة المصدر. لا يوجد تحويل CMYK أو ملف ICC في هذه النسخة.' : 'The DPI setting determines output pixel count; it is not embedded as DPI metadata and does not measure source-image quality. This version has no CMYK conversion or ICC profile.'}</span>
+      </div>
+
+      {saveError && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300">{saveError}</p>}
 
       {saveSuccessMsg && (
         <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-950/20 text-xs text-emerald-300 flex items-center justify-between">
@@ -206,9 +225,7 @@ export const PrintPrepView: React.FC = () => {
           <div className="relative w-full aspect-[3/4] max-h-[70vh] rounded-2xl overflow-hidden border border-slate-800 bg-[#090d16] p-8 shadow-2xl flex items-center justify-center">
             {/* The Print Sheet container */}
             <div
-              className={`relative w-full h-full rounded-lg overflow-hidden border border-slate-700 shadow-xl bg-black ${
-                colorMode === 'CMYK' ? 'filter saturate-90 contrast-105' : ''
-              }`}
+              className="relative w-full h-full rounded-lg overflow-hidden border border-slate-700 shadow-xl bg-black"
             >
               <img src={currentImage} alt="Print Preview" className="w-full h-full object-cover" />
 
@@ -354,59 +371,34 @@ export const PrintPrepView: React.FC = () => {
               </div>
             </div>
 
-            {/* Color Mode Selection */}
-            <div>
-              <label className="block text-[11px] text-slate-400 mb-1.5">{isAr ? 'نظام الألوان للمطبعة' : 'Color Mode'}</label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'CMYK', label: 'CMYK (طباعة 4 ألوان أوفست وديجيتال)' },
-                  { id: 'RGB', label: 'RGB (شاشات وتصوير فوتوغرافي)' },
-                ].map((mode) => (
-                  <button
-                    key={mode.id}
-                    onClick={() => setColorMode(mode.id as any)}
-                    className={`p-2.5 rounded-xl text-xs font-bold border text-right transition-colors ${
-                      colorMode === mode.id
-                        ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-                        : 'border-slate-800 bg-[#090e17] text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="rounded-xl border border-slate-800 bg-[#090e17] p-3 text-xs text-slate-400">
+              {isAr ? 'الصيغة الناتجة RGB PNG فقط. راجع متطلبات المطبعة بشكل منفصل؛ إعداد الورق وCMYK/ICC غير مطبقين.' : 'Output is RGB PNG only. Confirm print requirements separately; paper type and CMYK/ICC processing are not implemented.'}
+            </p>
           </div>
 
-          {/* Pre-Flight Diagnostic Quality Check */}
+          {/* Target raster dimensions; this is not a source-resolution preflight. */}
           <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>{isAr ? 'فحص جاهزية الطباعة (Pre-Flight Check)' : 'Pre-Flight Diagnostic'}</span>
+              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              <span>{isAr ? 'أبعاد الصورة النقطية المستهدفة' : 'Target raster dimensions'}</span>
             </h3>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#090e17] border border-slate-800 text-xs">
-                <span className="text-slate-300">{isAr ? 'معدل الدقة (DPI Check)' : 'DPI Check'}</span>
-                <span className={`font-bold flex items-center gap-1 ${isDpiGood ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {isDpiGood ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-                  {dpi} DPI ({isDpiGood ? (isAr ? 'ممتاز' : 'Optimal') : (isAr ? 'منخفض' : 'Low')})
-                </span>
+                <span className="text-slate-300">{isAr ? 'كثافة بكسل مستهدفة' : 'Target pixel density'}</span>
+                <span className="font-mono font-bold text-amber-300">{dpi} px/in</span>
               </div>
 
               <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#090e17] border border-slate-800 text-xs">
-                <span className="text-slate-300">{isAr ? 'أبعاد البكسل المطلوبة' : 'Required Pixels'}</span>
+                <span className="text-slate-300">{isAr ? 'أبعاد ملف PNG' : 'PNG output dimensions'}</span>
                 <span className="font-mono text-blue-400 font-bold">
                   {pixelWidth} × {pixelHeight} px
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#090e17] border border-slate-800 text-xs">
-                <span className="text-slate-300">{isAr ? 'هامش القص الآمن (Bleed)' : 'Bleed Verification'}</span>
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5" />
-                  {bleedMm} mm ({isAr ? 'معتمد' : 'Standard'})
-                </span>
+                <span className="text-slate-300">{isAr ? 'حالة فحص جودة المصدر' : 'Source-image quality check'}</span>
+                <span className="text-amber-300">{isAr ? 'غير منفذ' : 'Not performed'}</span>
               </div>
             </div>
           </div>

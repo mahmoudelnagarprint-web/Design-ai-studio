@@ -48,8 +48,7 @@ export const Header: React.FC<{ onToggleSidebar: () => void }> = ({ onToggleSide
     setIsExportCenterOpen,
     isCopilotOpen,
     setIsCopilotOpen,
-    activeGoogleAccount,
-    setIsGoogleAccountsModalOpen,
+    setIsApiConnectionModalOpen,
     settings,
     updateSettings,
     setCurrentView,
@@ -148,21 +147,21 @@ export const Header: React.FC<{ onToggleSidebar: () => void }> = ({ onToggleSide
           <span>{isAr ? 'نسخ المشروع' : 'Duplicate'}</span>
         </button>
 
-        {/* Google Account & Free Quota Switcher */}
+        {/* Gemini API Connection */}
         <button
-          onClick={() => setIsGoogleAccountsModalOpen(true)}
+          onClick={() => setIsApiConnectionModalOpen(true)}
           className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 text-xs transition-all shadow-sm group hover:border-amber-500/40"
-          title={isAr ? 'تسجيل الدخول بحسابات جوجل وإدارة الكوتة المجانية' : 'Google Accounts & Free Quota'}
+          title={isAr ? 'إعداد واختبار اتصال Gemini API' : 'Configure and test Gemini API'}
         >
           <div className="h-6 w-6 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform">
             <GoogleColorIcon className="w-4 h-4" />
           </div>
           <div className="hidden md:flex flex-col text-right">
             <span className="text-[11px] font-bold text-slate-200 truncate max-w-[130px] group-hover:text-amber-300 transition-colors">
-              {activeGoogleAccount?.email?.split('@')[0]}
+              Gemini API
             </span>
-            <span className="text-[9px] text-emerald-400 font-mono">
-              {Math.max(0, 1500 - (activeGoogleAccount?.usedRequestsToday || 0))} {isAr ? 'طلب مجاني' : 'free left'}
+            <span className="text-[9px] text-slate-400 font-mono">
+              {isAr ? 'اختبار الاتصال' : 'Test connection'}
             </span>
           </div>
         </button>

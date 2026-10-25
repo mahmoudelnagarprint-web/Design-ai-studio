@@ -14,22 +14,13 @@ export const FontsView: React.FC = () => {
   const isAr = settings.language === 'ar';
 
   const [isDetecting, setIsDetecting] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [fontData, setFontData] = useState<any>({
-    detectedClassification: 'Luxury Serif & Modern Arabic Kufic',
-    closestFont: 'Cinzel Decorative & Cairo Bold',
-    arabicSuggestions: [
-      { name: 'Cairo', style: 'Geometric Modern Arabic Sans', googleFontsUrl: 'https://fonts.google.com/specimen/Cairo' },
-      { name: 'Amiri', style: 'Classic Naskh Arabic Serif', googleFontsUrl: 'https://fonts.google.com/specimen/Amiri' },
-      { name: 'Reem Kufi', style: 'Decorative Display Kufic', googleFontsUrl: 'https://fonts.google.com/specimen/Reem+Kufi' },
-      { name: 'Tajawal', style: 'Clean Contemporary Web Sans', googleFontsUrl: 'https://fonts.google.com/specimen/Tajawal' },
-    ],
-    englishSuggestions: [
-      { name: 'Cinzel Decorative', style: 'High Luxury Trajan Serif', googleFontsUrl: 'https://fonts.google.com/specimen/Cinzel+Decorative' },
-      { name: 'Playfair Display', style: 'Editorial Fashion Serif', googleFontsUrl: 'https://fonts.google.com/specimen/Playfair+Display' },
-      { name: 'Plus Jakarta Sans', style: 'Geometric Corporate Sans', googleFontsUrl: 'https://fonts.google.com/specimen/Plus+Jakarta+Sans' },
-      { name: 'Cormorant Garamond', style: 'Classic Literary Elegance', googleFontsUrl: 'https://fonts.google.com/specimen/Cormorant+Garamond' },
-    ],
-    recommendations: 'استخدم خط Cairo Bold للنصوص العربية الرئيسية، مع خط Cinzel للأرقام وتواريخ التخرج باللون الذهبي.',
+    detectedClassification: '',
+    closestFont: '',
+    arabicSuggestions: [],
+    englishSuggestions: [],
+    recommendations: '',
   });
 
   const currentImage =
@@ -39,14 +30,21 @@ export const FontsView: React.FC = () => {
     '';
 
   const handleRunDetection = async () => {
+    setAnalysisError(null);
+    if (!currentImage) {
+      setAnalysisError(isAr ? 'اختر صورة قبل فحص الخطوط.' : 'Select an image before detecting fonts.');
+      return;
+    }
     setIsDetecting(true);
     try {
       const res = await detectFont(currentImage);
       if (res.success && res.data) {
         setFontData(res.data);
+      } else {
+        setAnalysisError(res.error || (isAr ? 'تعذر اكتشاف الخطوط.' : 'Font detection failed.'));
       }
     } catch {
-      console.error('Font detection failed');
+      setAnalysisError(isAr ? 'تعذر الاتصال بخدمة اكتشاف الخطوط.' : 'Could not contact the font detection service.');
     } finally {
       setIsDetecting(false);
     }
@@ -78,6 +76,13 @@ export const FontsView: React.FC = () => {
           <span>{isDetecting ? (isAr ? 'جاري فحص الخطوط...' : 'Analyzing Fonts...') : (isAr ? 'فحص الخطوط الآن' : 'Detect Fonts')}</span>
         </button>
       </div>
+
+      {analysisError && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300">{analysisError}</p>}
+      {!analysisError && !fontData.detectedClassification && (
+        <p className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-xs text-slate-400">
+          {isAr ? 'لا توجد نتائج بعد. افحص الخطوط في صورة.' : 'No results yet. Detect fonts in an image.'}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Arabic Suggestions */}

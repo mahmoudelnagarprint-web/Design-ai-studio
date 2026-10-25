@@ -35,7 +35,14 @@ export function loadStoredSettings(): StudioSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return defaultSettings;
-    return { ...defaultSettings, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    // Remove legacy fake-account data and browser-stored API keys.
+    delete parsed.googleAccounts;
+    delete parsed.activeGoogleAccountId;
+    delete parsed.autoSwitchOnQuotaExceeded;
+    const merged = { ...defaultSettings, ...parsed } as StudioSettings;
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
+    return merged;
   } catch {
     return defaultSettings;
   }

@@ -195,8 +195,8 @@ export const PromptStudioView: React.FC<{ initialMode?: 'library' | 'generate' }
         if (res.isQuotaError || res.requiresPaidKey) {
           setQuotaNotice(
             isAr
-              ? 'تنبيه حصة الموديل (API Quota): موديلات توليد الصور (Gemini Flash Image) تتطلب تفعيل مفتاح API مدفوع (Pay-as-you-go) من حساب Google Cloud. لقد قمنا بتوجيهك لاختيار وتفعيل المفتاح الآن.'
-              : 'Quota notice: High-quality image generation requires an active API key with quota enabled.'
+              ? 'تعذر توليد الصورة من مزود الخادم. تحقق من إعداد مفتاح Gemini وصلاحية النموذج وحالة المزود.'
+              : 'Image generation is unavailable. Check the server API key, model access, and provider response.'
           );
         }
         if (res.previewCardUrl) {
@@ -281,22 +281,22 @@ export const PromptStudioView: React.FC<{ initialMode?: 'library' | 'generate' }
 
         {/* Generate & Quick Actions Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Copy for Gemini Pro */}
+          {/* Copy prompt for external use */}
           <button
             onClick={() => {
               const fullPromptForGemini = `Create a photorealistic, ultra-high-definition design:\n\n${promptText}\n\nStyle: ${activePrompt.style || 'Photorealistic luxury'}\nAspect Ratio: ${activePrompt.aspectRatio || '3:4'}${negativePrompt ? `\nAvoid / Negative: ${negativePrompt}` : ''}`;
               navigator.clipboard.writeText(fullPromptForGemini);
               setGenerationFeedback(
                 isAr
-                  ? 'تم نسخ البرومبت الكامل بنجاح! يمكنك الآن لصقه مباشرة في حسابك في Google Gemini Pro لتوليده بدون أي تكلفة 📋'
-                  : 'Full prompt copied! Paste it in your Google Gemini Pro to generate.'
+                  ? 'تم نسخ البرومبت. يمكنك لصقه في خدمة خارجية؛ الأسعار والحدود تعتمد على حسابك ومزود الخدمة.'
+                  : 'Prompt copied. External service pricing and limits depend on your account and provider.'
               );
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 text-xs font-semibold border border-purple-500/40 transition-colors shadow-sm"
-            title={isAr ? 'استغلال حسابك البرو في جوجل بنسخ البرومبت الهندسي ولصقه في Gemini' : 'Copy prompt to use in Gemini Pro'}
+            title={isAr ? 'نسخ البرومبت لاستخدامه خارجيًا؛ لا يربط هذا التطبيق حساب Google.' : 'Copy prompt for external use; this app does not connect a Google account.'}
           >
             <Copy className="w-3.5 h-3.5 text-purple-400" />
-            <span>{isAr ? 'استغلال حسابك البرو (نسخ لـ Gemini)' : 'Copy for Gemini Pro'}</span>
+            <span>{isAr ? 'نسخ لـ Gemini' : 'Copy for Gemini'}</span>
           </button>
 
           <button
@@ -314,7 +314,7 @@ export const PromptStudioView: React.FC<{ initialMode?: 'library' | 'generate' }
             className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-bold shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50"
           >
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin text-slate-950" /> : <Sparkles className="w-4 h-4 text-slate-950" />}
-            <span>{isGenerating ? (isAr ? 'جاري التوليد...' : 'Generating...') : (isAr ? 'توليد الصورة الآن (مجاناً)' : 'Generate Now (Free)')}</span>
+            <span>{isGenerating ? (isAr ? 'جاري التوليد...' : 'Generating...') : (isAr ? 'توليد الصورة' : 'Generate Image')}</span>
           </button>
         </div>
       </div>
@@ -339,12 +339,12 @@ export const PromptStudioView: React.FC<{ initialMode?: 'library' | 'generate' }
             <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h4 className="text-xs font-bold text-amber-300">
-                {isAr ? 'كيف تستغل حسابك البرو في جوجل بدون دفع أي مبالغ إضافية؟' : 'How to use your Google Pro account without extra charges'}
+                {isAr ? 'مزود التوليد غير متاح' : 'Image provider unavailable'}
               </h4>
               <p className="text-[11px] text-slate-300 leading-relaxed">
                 {isAr
-                  ? 'اشتراك Google One AI Premium (Gemini Advanced Pro) مخصص لموقع وتطبيق Gemini الرسمي. لاستغلال اشتراكك المدفوع مجاناً: انسخ البرومبت المصاغ هنا بدقة وافتحه في تطبيق Gemini لتوليده فوراً بأعلى جودة!'
-                  : 'Your Google One AI Premium subscription is for Gemini app. You can copy this optimized prompt and generate it directly in Gemini Pro at zero cost.'}
+                  ? 'لم يتوفر مزود التوليد من الخادم. تحقق من إعداد GEMINI_API_KEY وصلاحية النموذج في بيئة الخادم، أو أعد المحاولة لاحقاً.'
+                  : 'The server image provider is unavailable. Check GEMINI_API_KEY and model access on the server, or try again later.'}
               </p>
             </div>
           </div>
@@ -360,7 +360,7 @@ export const PromptStudioView: React.FC<{ initialMode?: 'library' | 'generate' }
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-900/30"
               >
-                <span>{isAr ? 'نسخ وفتح Google Gemini Pro' : 'Copy & Open Gemini Pro'}</span>
+                <span>{isAr ? 'نسخ وفتح Gemini' : 'Copy & Open Gemini'}</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
               <button

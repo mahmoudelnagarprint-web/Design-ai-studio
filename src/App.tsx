@@ -4,7 +4,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { AiCopilotDrawer } from './components/layout/AiCopilotDrawer';
 import { ExportCenterModal } from './components/modals/ExportCenterModal';
-import { GoogleAccountsModal } from './components/modals/GoogleAccountsModal';
+import { ApiConnectionModal } from './components/modals/ApiConnectionModal';
 
 // Views
 import { DashboardView } from './components/views/DashboardView';
@@ -97,7 +97,7 @@ const StudioMain: React.FC = () => {
       <ExportCenterModal />
 
       {/* Google Accounts & Free Quota Manager Modal */}
-      <GoogleAccountsModal />
+      <ApiConnectionModal />
     </div>
   );
 };

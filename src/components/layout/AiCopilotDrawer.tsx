@@ -97,26 +97,23 @@ export const AiCopilotDrawer: React.FC = () => {
         chatHistory: messages.map((m) => ({ role: m.role, text: m.text })),
       });
 
-      let replyText = response.reply;
-      if (!replyText) {
-        // Fallback intelligent response tailored to project state
-        if (query.includes('تخرج') || query.includes('30') || query.includes('7 صور')) {
-          replyText = `فهمت طلبك بدقة! لقد قمت بتهيئة مخطط تخرج بمقاس 30×40 سم مع 7 صور وإطار ملكي باروك.
-سأحافظ بشكل صارم على ملامح الشخص المقفل (${projectContext.lockedReferences[0]?.name || 'صورة الخريج'}).
-يمكنك الآن الضغط على "استوديو الكولاج" أو "توليد من برومبت" لتطبيق التوزيع.`;
-        } else if (query.includes('كبرها') || query.includes('جودة')) {
-          replyText = `تمام! حددت الصورة الرئيسية لتكبيرها 4x ومضاعفة الدقة إلى 300 DPI مع الحفاظ على ملامح الوجه ("Preserve Identity"). يمكنك فتح أداة AI Enhance للبدء فورًا.`;
-        } else if (query.includes('ذهبية') || query.includes('ذهب')) {
-          replyText = `تم تطبيق ستايل الذهب الملكي المعتق على الإطار وعناصر الزخرفة مع الحفاظ على تباين الخلفية الزمردية الرخامية.`;
-        } else {
-          replyText = `تم استيعاب طلبك ضمن سياق المشروع الحالي. يمكنك تطبيق هذا التغيير عبر البرومبت المحدث v${(activePrompt?.version || 1) + 1}.`;
-        }
+      if (!response.success || !response.reply) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-err`,
+            role: 'assistant',
+            text: response.error || (isAr ? 'لم تُرجع الخدمة ردًا. لم يتم تطبيق أي تغيير.' : 'The service returned no reply. No change was applied.'),
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+        return;
       }
 
       const assistantMsg: ChatMessage = {
         id: `msg-${Date.now()}-ai`,
         role: 'assistant',
-        text: replyText,
+        text: response.reply,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 

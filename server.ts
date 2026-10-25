@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
 
 dotenv.config();
 
@@ -10,14 +12,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.disable('x-powered-by');
+app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));
+app.use(
+  '/api',
+  rateLimit({
+    windowMs: 60 * 1000,
+    limit: 20,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { success: false, error: 'Too many requests. Please try again shortly.' },
+  })
+);
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
 // Shared Gemini client setup
-function getGeminiClient(customKey?: string): GoogleGenAI | null {
-  const apiKey = (typeof customKey === 'string' && customKey.trim()) ? customKey.trim() : process.env.GEMINI_API_KEY;
+function getGeminiClient(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return null;
   }
@@ -29,15 +43,6 @@ function getGeminiClient(customKey?: string): GoogleGenAI | null {
       },
     },
   });
-}
-
-function resolveApiKey(req: express.Request): string | undefined {
-  const headerKey = req.headers['x-gemini-api-key'];
-  if (typeof headerKey === 'string' && headerKey.trim()) return headerKey.trim();
-  if (req.body && typeof req.body.apiKey === 'string' && req.body.apiKey.trim()) {
-    return req.body.apiKey.trim();
-  }
-  return undefined;
 }
 
 // Resilient model caller: tries high-availability gemini-3.1-flash-lite first, then gemini-flash-latest, then gemini-3.8-flash
@@ -54,7 +59,11 @@ async function generateWithFallback(ai: GoogleGenAI, requestPayload: any) {
       return response;
     } catch (err: any) {
       lastError = err;
-      // Do not dump raw 429/quota error JSON to stderr
+      const status = err?.status ?? err?.statusCode;
+      if (status === 400 || status === 401 || status === 403 || status === 429) {
+        throw err;
+      }
+      // Do not dump raw provider error JSON to stderr
     }
   }
 
@@ -74,100 +83,21 @@ app.get('/api/health', (req, res) => {
 });
 
 app.post('/api/test-connection', async (req, res) => {
-  try {
-    const ai = getGeminiClient();
-    if (!ai) {
-      return res.status(200).json({
-        success: true,
-        message: 'NAGAR DESIGN AI Engine active (Local / Direct Studio Mode)',
-      });
-    }
-
-    try {
-      const response = await generateWithFallback(ai, {
-        contents: 'Reply with JSON: {"status": "connected", "studio": "NAGAR DESIGN AI STUDIO"}',
-        config: {
-          responseMimeType: 'application/json',
-        },
-      });
-
-      return res.json({
-        success: true,
-        message: 'الاتصال بنظام الذكاء الاصطناعي متصل وجاهز للعمل',
-        response: response.text,
-      });
-    } catch {
-      // Graceful fallback
-      return res.json({
-        success: true,
-        message: 'استوديو نجار ديزاين يعمل بكفاءة مع المعالجة الذكية للملفات والتصميمات',
-      });
-    }
-  } catch (error: any) {
-    res.json({
-      success: true,
-      message: 'NAGAR DESIGN AI Engine active',
+  const ai = getGeminiClient();
+  if (!ai) {
+    return res.status(503).json({
+      success: false,
+      message: 'Gemini API is not configured. Set GEMINI_API_KEY on the server.',
     });
   }
-});
 
-// Verify Google Account & Activate Available Credit
-app.post('/api/verify-account-credit', async (req, res) => {
   try {
-    const { email, apiKey } = req.body;
-    const userKey = resolveApiKey(req) || apiKey;
-    const cleanEmail = email?.trim() || 'mahmoud.elnagar22@gmail.com';
-
-    const ai = getGeminiClient(userKey);
-    if (!ai) {
-      return res.status(200).json({
-        success: true,
-        creditActive: true,
-        plan: 'Google Gemini High-Speed Free Tier',
-        dailyRequests: 1500,
-        rpm: 15,
-        email: cleanEmail,
-        hasCustomKey: false,
-        message: 'تم تفعيل الحساب والرصيد بنجاح (1,500 طلب مجاني يومياً)!',
-      });
-    }
-
-    try {
-      await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: 'ping',
-      });
-
-      return res.json({
-        success: true,
-        creditActive: true,
-        plan: userKey ? 'Google Cloud / Custom Gemini Key' : 'Google AI Studio Free Tier (1,500 طلب/يوم)',
-        dailyRequests: 1500,
-        rpm: 15,
-        email: cleanEmail,
-        hasCustomKey: Boolean(userKey),
-        message: 'تم التحقق من الحساب وتفعيل الرصيد بنجاح! جاهز للتوليد والتصميم.',
-      });
-    } catch {
-      return res.json({
-        success: true,
-        creditActive: true,
-        plan: 'Google Gemini Free Tier',
-        dailyRequests: 1500,
-        rpm: 15,
-        email: cleanEmail,
-        hasCustomKey: Boolean(userKey),
-        message: 'تم تسجيل الحساب وتفعيل الحصة المجانية بنجاح داخل الاستوديو.',
-      });
-    }
-  } catch (err: any) {
-    return res.status(200).json({
-      success: true,
-      creditActive: true,
-      plan: 'Google Gemini Free Tier',
-      dailyRequests: 1500,
-      email: req.body?.email || 'mahmoud.elnagar22@gmail.com',
-      message: 'تم تسجيل الحساب وتفعيل الرصيد.',
+    await generateWithFallback(ai, { contents: 'Reply with the word connected.' });
+    return res.json({ success: true, message: 'Gemini API connection verified.' });
+  } catch {
+    return res.status(502).json({
+      success: false,
+      message: 'Gemini API connection failed. Check the server key, model access, and provider status.',
     });
   }
 });
@@ -236,36 +166,8 @@ Return a clean JSON object with this exact structure:
       }
     }
 
-    // Intelligent fallback response
-    res.json({
-      success: true,
-      data: {
-        basicPrompt: 'تصميم تخرج فاخر بخلفية رخام زمردي وإطار ذهبي باروكي مذهب مع صورة خريج أنيق',
-        detailedPrompt:
-          'A prestigious luxury graduation commemorative portrait design featuring a centered high-status graduate wearing a formal dark graduation gown and gold sash. The backdrop is dark royal emerald green marble with delicate veins of antique gold leaf. Encased inside an ornate baroque golden filigree frame with filigree corner ornaments and classic Arabic typography.',
-        productionPrompt:
-          'hyper-realistic luxury graduation portrait, 8k resolution, Hasselblad 100MP, dark royal emerald green marble backdrop with natural veins of gold foil, ornate baroque antique gold frame, studio softbox rim lighting, cinematic lighting, sharp focus on facial features, elegant Arabic calligraphy "مبروك التخرج", photorealistic editorial, award winning design --ar 3:4 --v 6.0',
-        negativePrompt:
-          'blurry, distorted facial features, oversaturated, bad geometry, cartoonish, low resolution, grainy, plastic skin, deformed hands, broken frame',
-        attributes: {
-          people: 'خريج أنيق بابتسامة واثقة، ملامح وجه حادة وواضحة، هيئة احتفالية راقية',
-          clothing: 'روب تخرج أسود فاخر مع وشاح ذهبي مطرز وقبعة تخرج بأهداب ذهبية',
-          background: 'رخام زمردي داكن ملكي مع عروق ذهبية ناعمة وإضاءة محيطية خافتة',
-          lighting: 'إضاءة استوديو ثلاثية النقاط، Key light مع إضاءة حافة ذهبية (Rim light)',
-          colors: 'زمردي ملكي (#0F2A1D)، ذهبي عتيق (#D4AF37)، أسود فحمي (#111827)',
-          composition: 'تكوين متوازن متناظر مع تأطير بيضاوي مركزي وتوزيع هندسي متناسق',
-          perspective: 'زاوية رؤية مستوية للعين (Eye-level) في المنتصف تماماً',
-          camera: 'Hasselblad H6D-100c Medium Format Digital',
-          lens: '85mm f/1.4 Portrait Prime Lens',
-          depthOfField: 'عمق ميدان ضيق مع عزل ناعم وتأثير بوكيه ذهبي خلفي',
-          style: 'تصوير احتفالي فاخر ونمط مطبوعات ملكية عالية الجودة',
-          materials: 'ورق ذهب عيار 24، رخام إيطالي مصقول، قماش مخملي أسود',
-          objects: 'إطار ذهبي باروكي، قبعة تخرج، درع تكريم، حوامل صور فرعية',
-          decorations: 'زخارف إسلامية وباروكية مذهبة، أغصان غار النصر، زوايا أرابيسك',
-          text: 'خط الثلث والديواني العربي: "مبروك التخرج ٢٠٢٦" بحبر ذهبي ناصع',
-        },
-      },
-    });
+        return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
+
   } catch (error: any) {
     console.error('image-to-prompt error:', error);
     res.status(500).json({ error: error?.message || 'Failed to analyze image' });
@@ -333,29 +235,8 @@ Return clean JSON:
       }
     }
 
-    // High quality intelligent synthesis fallback
-    const roleAdditions: Record<string, string> = {
-      'Main Subject': 'featuring the primary subject locked at center with preserved facial features and identity',
-      'Face Reference': 'with strict facial biometrics and authentic expressions preserved from face reference',
-      'Background Reference': 'integrated onto a bespoke textured background matching the luxury reference environment',
-      'Frame Reference': 'encased in an exquisite high-relief ornate frame structure matching the reference contour',
-      'Decoration Reference': 'adorned with delicate golden filigree ornamental flourishes and laurel badges',
-      'Style Reference': 'infused with the rich color grading, chiaroscuro contrast, and prestige of the style reference',
-      'Color Reference': 'harmonized across the chromatic palette of the color reference',
-    };
+        return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
 
-    const addedPhrase = roleAdditions[newReferenceRole] || `seamlessly integrating the visual qualities of ${newReferenceRole}`;
-    const newPrompt = `${currentPrompt.trim()}, ${addedPhrase}, hyper-detailed studio lighting, 8k resolution, luxury aesthetic`;
-
-    res.json({
-      success: true,
-      data: {
-        updatedPrompt: newPrompt,
-        explanation: `تم دمج عنصر (${newReferenceRole}) الجديد بنجاح في البرومبت مع الحفاظ التام على هوية وموضع العناصر المقفولة.`,
-        recommendedNegativePromptAdditions: 'inconsistent lighting, mismatched palette, deformed borders',
-        detectedRoleFeatures: `خصائص (${newReferenceRole}) المحددة في التصميم`,
-      },
-    });
   } catch (error: any) {
     console.error('update-prompt-with-reference error:', error);
     res.status(500).json({ error: error?.message || 'Failed to update prompt' });
@@ -413,31 +294,8 @@ Return JSON:
       }
     }
 
-    // Fallback prompt decomposition
-    res.json({
-      success: true,
-      data: {
-        subject: 'خريج متميز في تصميم تذكاري راقٍ مع الحفاظ على ملامح الوجه',
-        environment: 'استوديو تصوير فوتوغرافي ملكي فاخر',
-        composition: 'تكوين عمودي متناسق مع تأطير بيضاوي مذهب مركزي',
-        lighting: 'إضاءة استوديو سينمائية ناعمة مع إضاءة حافة ذهبية دافئة',
-        camera: 'Hasselblad H6D-100c Medium Format',
-        lens: '85mm f/1.4 Portrait Lens',
-        colors: 'أخضر زمردي ملكي (#0F2A1D)، ذهبي لامع (#D4AF37)، أسود مخملي',
-        style: 'تصوير احتفالي فاخر فائق الدقة (Hyper-realistic Luxury Portrait)',
-        materials: 'ورق ذهب، رخام زمردي مصقول، أقمشة مخملية',
-        clothing: 'روب تخرج فاخر مع وشاح مذهب وشارة تكريم',
-        background: 'خلفية رخامية خضراء داكنة مع عروق وتأثيرات ذهبية ناعمة',
-        text: 'مخطوطة عربية تهنئة بالخط الديواني أو الثلث بالذهب الخالص',
-        quality: '8K Ultra HD, Razor-sharp detail, Octane Render aesthetics',
-        negativeConstraints: 'blurry, distorted facial features, plastic skin, oversaturated, broken frame',
-        score: 96,
-        optimizationTips: [
-          'إضافة تفاصيل إضاءة الحواف (Rim Lighting) لزيادة عمق الصورة وفصل الخريج عن الخلفية',
-          'استخدام نسبة العرض إلى الارتفاع 3:4 أو 4:5 لتكون مثالية للبراويز 30×40 سم',
-        ],
-      },
-    });
+        return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
+
   } catch (error: any) {
     console.error('analyze-prompt error:', error);
     res.status(500).json({ error: error?.message || 'Failed to analyze prompt' });
@@ -558,76 +416,8 @@ Return JSON with list of components:
       }
     }
 
-    // Default decomposed layers
-    res.json({
-      success: true,
-      data: {
-        totalLayers: 6,
-        summary: 'تم تفكيك التصميم بنجاح إلى 6 طبقات متمايزة تشمل الخلفية، الإطار الباروكي، صورة الخريج، والخط العربي الذهبي.',
-        components: [
-          {
-            id: 'layer-1',
-            name: 'خلفية رخامية زمردية مذهبة (Background)',
-            category: 'Background',
-            confidence: 0.98,
-            description: 'رخام زمردي فاخر بدرجات داكنة مع عروق ذهبية عتيقة',
-            bbox: { x: 0, y: 0, width: 100, height: 100 },
-            zIndex: 1,
-            recommendedAction: 'حفظ أو استبدال بلون موحد أو عزل',
-          },
-          {
-            id: 'layer-2',
-            name: 'الإطار الباروكي المذهب الخارجي (Ornate Frame)',
-            category: 'Frames',
-            confidence: 0.96,
-            description: 'إطار مذهب فاخر بنقوش باروكية وزوايا أرابيسك مقوسة',
-            bbox: { x: 4, y: 4, width: 92, height: 92 },
-            zIndex: 2,
-            recommendedAction: 'تصدير كـ PNG شفاف أو مسار ليزر',
-          },
-          {
-            id: 'layer-3',
-            name: 'صورة الخريج المركزية (Main Portrait)',
-            category: 'People',
-            confidence: 0.99,
-            description: 'بورتريه الخريج الرسمي مع قبعة التخرج والوشاح المذهب',
-            bbox: { x: 28, y: 22, width: 44, height: 50 },
-            zIndex: 3,
-            recommendedAction: 'قفل كعنصر رئيسي 🔒 للحفاظ على الملامح',
-          },
-          {
-            id: 'layer-4',
-            name: 'مخطوطة "مبروك التخرج ٢٠٢٦" (Calligraphy)',
-            category: 'Text & Typography',
-            confidence: 0.97,
-            description: 'خط ثلث عربي مذهب محفور ببريق ذهبي ملكي',
-            bbox: { x: 20, y: 11, width: 60, height: 10 },
-            zIndex: 4,
-            recommendedAction: 'تجهيز للحفر بالليزر أو الطباعة الذهبية',
-          },
-          {
-            id: 'layer-5',
-            name: 'زخارف الزوايا الذهبية الأربعة (Filigree Corners)',
-            category: 'Decorations',
-            confidence: 0.94,
-            description: 'زخارف نباتية وهندسية مذهبة لتزيين أركان اللوحة',
-            bbox: { x: 5, y: 5, width: 90, height: 90 },
-            zIndex: 5,
-            recommendedAction: 'فصل كعنصر زخرفي مستقل في مكتبة الأصول',
-          },
-          {
-            id: 'layer-6',
-            name: 'شعار ووسام التميز الأكاديمي (Badge & Laurel)',
-            category: 'Stickers & Badges',
-            confidence: 0.93,
-            description: 'إكليل غار ذهبي مع سنة التخرج ووسام الشرف',
-            bbox: { x: 42, y: 74, width: 16, height: 16 },
-            zIndex: 6,
-            recommendedAction: 'استخدام كختم رسمي للتصميم',
-          },
-        ],
-      },
-    });
+        return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
+
   } catch (error: any) {
     console.error('decompose-design error:', error);
     res.status(500).json({ error: error?.message || 'Failed to decompose design' });
@@ -699,38 +489,8 @@ Return JSON:
       }
     }
 
-    res.json({
-      success: true,
-      data: {
-        detectedTexts: [
-          {
-            text: 'مبروك التخرج ٢٠٢٦',
-            language: 'Arabic',
-            bbox: { x: 25, y: 12, width: 50, height: 10 },
-            fontStyle: 'خط ديواني / ثلث مذهب فاخر',
-            color: '#D4AF37 (ذهبي ملكي)',
-            confidence: 0.99,
-          },
-          {
-            text: 'CLASS OF 2026 • BACHELOR OF HONORS',
-            language: 'English',
-            bbox: { x: 20, y: 18, width: 60, height: 5 },
-            fontStyle: 'Cinzel Serif / All-Caps Luxury',
-            color: '#CBD5E1 (فضي ناصع)',
-            confidence: 0.98,
-          },
-          {
-            text: 'المهندس / أحمد النجار',
-            language: 'Arabic',
-            bbox: { x: 30, y: 75, width: 40, height: 8 },
-            fontStyle: 'خط القاهرة Bold / خط عربي حديث',
-            color: '#FEF08A (ذهب فاتح)',
-            confidence: 0.97,
-          },
-        ],
-        fullTranscript: 'مبروك التخرج ٢٠٢٦ • CLASS OF 2026 • BACHELOR OF HONORS • المهندس / أحمد النجار',
-      },
-    });
+    return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
+
   } catch (error: any) {
     console.error('ocr-text error:', error);
     res.status(500).json({ error: error?.message || 'Failed to extract text' });
@@ -790,27 +550,8 @@ Return JSON:
       }
     }
 
-    res.json({
-      success: true,
-      data: {
-        detectedClassification: 'خطوط احتفالية ملكية (Luxury Serif & Arabic Diwani/Kufi)',
-        closestFont: 'Cairo Bold & Cinzel Decorative',
-        arabicSuggestions: [
-          { name: 'Cairo (القاهرة)', style: 'خط عربي هندسي فائق الوضوح للعناوين والأسماء', googleFontsUrl: 'https://fonts.google.com/specimen/Cairo' },
-          { name: 'Amiri (أميري)', style: 'خط نسخ كلاسيكي رسمي للمطبوعات والشهادات', googleFontsUrl: 'https://fonts.google.com/specimen/Amiri' },
-          { name: 'Tajawal (تجوال)', style: 'خط عربي حديث ومرن متناسق مع الإنجليزية', googleFontsUrl: 'https://fonts.google.com/specimen/Tajawal' },
-          { name: 'Reem Kufi (ريم كوفي)', style: 'خط كوفي زخرفي للعناوين الرئيسية والمخطوطات', googleFontsUrl: 'https://fonts.google.com/specimen/Reem+Kufi' },
-          { name: 'Aref Ruqaa (عارف رقعة)', style: 'خط رقعة أصيل يمنح طابع التوقيع والإهداء', googleFontsUrl: 'https://fonts.google.com/specimen/Aref+Ruqaa' },
-        ],
-        englishSuggestions: [
-          { name: 'Cinzel Decorative', style: 'High luxury serif with ornamental caps', googleFontsUrl: 'https://fonts.google.com/specimen/Cinzel+Decorative' },
-          { name: 'Playfair Display', style: 'High-contrast editorial serif', googleFontsUrl: 'https://fonts.google.com/specimen/Playfair+Display' },
-          { name: 'Plus Jakarta Sans', style: 'Clean contemporary premium sans', googleFontsUrl: 'https://fonts.google.com/specimen/Plus+Jakarta+Sans' },
-          { name: 'Cormorant Garamond', style: 'Traditional elegant royal serif', googleFontsUrl: 'https://fonts.google.com/specimen/Cormorant+Garamond' },
-        ],
-        recommendations: 'لأفضل مظهر طباعة وليزر: استخدم Cairo للأسماء وCinzel Decorative لسنة التخرج، مع تعبئة بلون الذهب المعدني #D4AF37.',
-      },
-    });
+    return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
+
   } catch (error: any) {
     console.error('detect-font error:', error);
     res.status(500).json({ error: error?.message || 'Failed to detect font' });
@@ -876,29 +617,8 @@ Return JSON:
       }
     }
 
-    res.json({
-      success: true,
-      data: {
-        paletteName: 'الزمرد الملكي والذهب العتيق (Royal Emerald & Antique Gold)',
-        mainColors: [
-          { hex: '#0F2A1D', name: 'زمردي داكن ملكي (Deep Emerald)', percentage: 48 },
-          { hex: '#111827', name: 'أسود كربوني عميق (Obsidian Black)', percentage: 28 },
-        ],
-        secondaryColors: [
-          { hex: '#2F5D48', name: 'ظل الميرمية الزمردي (Sage Shadow)', percentage: 14 },
-          { hex: '#F8FAFC', name: 'أبيض لؤلؤي صافي (Pearl White)', percentage: 4 },
-        ],
-        accentColors: [
-          { hex: '#D4AF37', name: 'ذهب عيار 24 معدني (Metallic Gold)', percentage: 4 },
-          { hex: '#FEF08A', name: 'بريق الشمبانيا الذهبي (Champagne Glow)', percentage: 2 },
-        ],
-        suggestedAlternatives: [
-          { name: 'ياقوت أزرق وذهب وردي (Sapphire & Rose Gold)', palette: ['#0B1B3D', '#D48C70', '#F7E7CE'] },
-          { name: 'عنابي مخملي وبلاتينيوم (Royal Ruby & Platinum)', palette: ['#4A0E17', '#E5E4E2', '#A31621'] },
-          { name: 'رخام أبيض وأسود ملكي (Monochrome Luxury & Gold)', palette: ['#0A0A0A', '#FFFFFF', '#EAB308'] },
-        ],
-      },
-    });
+    return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
+
   } catch (error: any) {
     console.error('extract-colors error:', error);
     res.status(500).json({ error: error?.message || 'Failed to extract colors' });
@@ -953,27 +673,8 @@ Respond naturally in warm, expert Arabic (with English terms when helpful). Incl
       }
     }
 
-    // Contextual chat fallback
-    const msgLower = (message || '').toLowerCase();
-    let reply = `أهلاً بك في استوديو نجار ديزاين! أنا مساعدك الذكي ومستعد لمساعدتك في توليد التصاميم، تجهيز مقاسات الطباعة (30×40 سم بـ 300 DPI)، تحويل الصور لقص الليزر، وتعديل البرومبت مع الصور المرجعية.`;
+        return res.status(503).json({ success: false, error: 'Gemini is unavailable or the request failed. No demo result was returned.' });
 
-    if (msgLower.includes('ذهب') || msgLower.includes('ذهبية') || msgLower.includes('gold')) {
-      reply = `تم استيعاب طلبك! تم اختيار لوحة الذهب المعدني عيار 24 (#D4AF37) مع تدرجات Champagne Glow، وتطبيقها على الإطار الباروكي والمخطوطة لتبدو فاخرة وعاكسة للضوء.`;
-    } else if (msgLower.includes('كبر') || msgLower.includes('scale') || msgLower.includes('حجم')) {
-      reply = `بالتأكيد! قمت بتوسيع العنصر النشط بنسبة 125% في وسط لوحة العمل، مع الحفاظ على هوية الوجه والنسب المتناسقة مع الإطار الخارجي.`;
-    } else if (msgLower.includes('تخرج') || msgLower.includes('7 صور') || msgLower.includes('30') || msgLower.includes('40')) {
-      reply = `تخطيط ممتاز لتصميم التخرج بمقاس 30×40 سم!
-الهيكل المقترح:
-1. صورة رئيسية في المنتصف بحجم كبير محاطة بإطار بيضاوي مذهب (Main Subject).
-2. عدد 6 صور فرعية متوزعة 3 على اليمين و3 على اليسار لتوثيق مسيرة التخرج.
-3. العنوان العلوي: "مبروك التخرج ٢٠٢٦" بخط ديواني مذهب.
-4. الهوامش: 3mm Bleed و 5mm Safe Area لتكون جاهزة للمطبعة والقص بالليزر.`;
-    }
-
-    res.json({
-      success: true,
-      reply,
-    });
   } catch (error: any) {
     console.error('assistant-chat error:', error);
     res.status(500).json({ error: error?.message || 'Failed in assistant chat' });
@@ -1083,7 +784,7 @@ app.post('/api/generate-image', async (req, res) => {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    const ai = getGeminiClient(resolveApiKey(req));
+    const ai = getGeminiClient();
     const validRatios = ['1:1', '3:4', '4:3', '9:16', '16:9', '1:4', '1:8', '4:1', '8:1'];
     const safeAspectRatio = validRatios.includes(aspectRatio) ? aspectRatio : '3:4';
 
@@ -1164,35 +865,10 @@ app.post('/api/generate-image', async (req, res) => {
       });
     }
 
-    // Free high-definition cloud AI generator fallback (100% free, no billing required)
-    let width = 1024;
-    let height = 1024;
-    if (safeAspectRatio === '3:4') { width = 768; height = 1024; }
-    else if (safeAspectRatio === '4:3') { width = 1024; height = 768; }
-    else if (safeAspectRatio === '9:16') { width = 576; height = 1024; }
-    else if (safeAspectRatio === '16:9') { width = 1024; height = 576; }
+        return res.status(503).json({ success: false, error: 'Image generation provider is unavailable or the request failed.' });
 
-    const promptForGeneration = `${prompt}, style of ${style || 'photorealistic luxury design'}, master quality, 8k resolution`;
-    const encodedPrompt = encodeURIComponent(promptForGeneration);
-    const randomSeed = Math.floor(Math.random() * 900000 + 100000);
-    const freeImageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${randomSeed}&nologo=true`;
-
-    return res.status(200).json({
-      success: true,
-      hasImage: true,
-      imageUrl: freeImageUrl,
-      isFreeEngine: true,
-      text: 'تم توليد الصورة الحقيقية فائقة الجودة بنجاح عبر محرك الذكاء الاصطناعي المجاني بدون أي تكلفة.',
-    });
   } catch {
-    const defaultPreview = renderDynamicPromptCard(req.body?.prompt || 'Design', req.body?.style || 'Studio', [], '3:4');
-    res.status(200).json({
-      success: true,
-      hasImage: true,
-      imageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(req.body?.prompt || 'luxury modern design')}?width=768&height=1024&nologo=true`,
-      text: 'تم توليد الصورة بنجاح بواسطة محرك الذكاء الاصطناعي المجاني.',
-      previewCardUrl: defaultPreview,
-    });
+    return res.status(500).json({ success: false, error: 'Image generation failed unexpectedly.' });
   }
 });
 
@@ -1204,7 +880,7 @@ app.post('/api/clone-collage-template', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing imageBase64' });
     }
 
-    const ai = getGeminiClient(resolveApiKey(req));
+    const ai = getGeminiClient();
     if (ai) {
       try {
         const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');

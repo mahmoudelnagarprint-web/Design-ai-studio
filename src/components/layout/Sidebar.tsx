@@ -83,8 +83,8 @@ export const Sidebar: React.FC<{ isOpen: boolean; onClose?: () => void }> = ({ i
       titleAr: 'التجهيز للإنتاج والتصنيع',
       titleEn: 'Production & Manufacturing',
       items: [
-        { id: 'print-prep', labelAr: 'تجهيز التصميم للطباعة', labelEn: 'Print Preparation', icon: Printer, badge: 'CMYK' },
-        { id: 'laser-prep', labelAr: 'تجهيز للقص بالليزر', labelEn: 'Laser Preparation', icon: Flame, badge: 'DXF' },
+        { id: 'print-prep', labelAr: 'معاينة وتجهيز PNG للطباعة', labelEn: 'Print PNG Preview', icon: Printer, badge: 'PNG' },
+        { id: 'laser-prep', labelAr: 'معاينة عتبة الليزر', labelEn: 'Laser Threshold Preview', icon: Flame, badge: 'Preview' },
       ],
     },
     {
@@ -187,9 +187,9 @@ export const Sidebar: React.FC<{ isOpen: boolean; onClose?: () => void }> = ({ i
                           className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold uppercase ${
                             item.badge === 'AI'
                               ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                              : item.badge === 'DXF'
-                              ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                              : item.badge === 'CMYK'
+                            : item.badge === 'Preview'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : item.badge === 'PNG'
                               ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                               : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                           }`}

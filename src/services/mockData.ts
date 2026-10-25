@@ -10,30 +10,6 @@ export const defaultSettings: StudioSettings = {
   autoSaveIntervalMs: 2500,
   showGrid: true,
   snapToGuides: true,
-  activeGoogleAccountId: 'acc-google-1',
-  autoSwitchOnQuotaExceeded: true,
-  googleAccounts: [
-    {
-      id: 'acc-google-1',
-      name: 'Mahmoud El Nagar',
-      email: 'mahmoud.elnagar22@gmail.com',
-      isPrimary: true,
-      dailyFreeRequestsLimit: 1500,
-      usedRequestsToday: 18,
-      lastActive: new Date().toISOString(),
-      quotaStatus: 'active',
-    },
-    {
-      id: 'acc-google-2',
-      name: 'Nagar Design Studio',
-      email: 'nagar.design.ai@gmail.com',
-      isPrimary: false,
-      dailyFreeRequestsLimit: 1500,
-      usedRequestsToday: 0,
-      lastActive: new Date(Date.now() - 86400000).toISOString(),
-      quotaStatus: 'active',
-    },
-  ],
 };
 
 // SVG data helpers to provide crisp visual assets without external network dependency
@@ -189,7 +165,7 @@ export const sampleGraduationOutputSvg = createSvgDataUrl(`
   <text x="400" y="890" font-family="Cairo, sans-serif" font-size="18" fill="#94a3b8" text-anchor="middle">جامعة القاهرة • كلية الهندسة • مرتبة الشرف</text>
 
   <!-- Bottom Details -->
-  <text x="400" y="990" font-family="'Plus Jakarta Sans', sans-serif" font-size="14" letter-spacing="3" fill="#64748b" text-anchor="middle">NAGAR DESIGN STUDIO • 30×40 CM PREMIUM PRINT READY</text>
+  <text x="400" y="990" font-family="'Plus Jakarta Sans', sans-serif" font-size="14" letter-spacing="3" fill="#64748b" text-anchor="middle">NAGAR DESIGN STUDIO • 30×40 CM PREVIEW</text>
 </svg>`);
 
 export const initialProjects: Project[] = [
@@ -222,7 +198,7 @@ export const initialProjects: Project[] = [
       widthCm: 30,
       heightCm: 40,
       dpi: 300,
-      colorMode: 'CMYK',
+      colorMode: 'RGB',
       bleedMm: 3,
       safeAreaMm: 5,
       paperType: 'Glossy',
@@ -613,7 +589,7 @@ export const initialProjects: Project[] = [
       widthCm: 30,
       heightCm: 30,
       dpi: 300,
-      colorMode: 'CMYK',
+      colorMode: 'RGB',
       bleedMm: 3,
       safeAreaMm: 5,
       paperType: 'Cardstock',
@@ -662,8 +638,8 @@ export const studioTemplates = [
     category: 'Laser',
     size: '15 × 20 cm',
     photosCount: 1,
-    description: 'جاهز لبرامج القص بالليزر DXF وSVG بخطوط متصلة بدون تقاطعات تالفة',
+    description: 'معاينة زخرفية فقط؛ لا تحتوي على مسارات DXF أو SVG صالحة لماكينات القص',
     thumbnail: sampleFrameSvg,
-    tags: ['laser', 'dxf', 'wood'],
+    tags: ['laser-preview', 'wood'],
   },
 ];

@@ -211,22 +211,6 @@ export type StudioView =
   | 'history'
   | 'settings';
 
-export interface GoogleAccountProfile {
-  id: string;
-  name: string;
-  email: string;
-  avatarUrl?: string;
-  isPrimary: boolean;
-  dailyFreeRequestsLimit: number; // 1500 requests/day in Google Gemini Free Tier
-  usedRequestsToday: number;
-  lastActive: string;
-  quotaStatus: 'active' | 'nearing_limit' | 'quota_exhausted';
-  apiKey?: string;
-  creditPlan?: string;
-  isCreditActivated?: boolean;
-  creditBalanceNote?: string;
-}
-
 export interface IllustrativePromptCard {
   id: string;
   name: string;
@@ -252,7 +236,4 @@ export interface StudioSettings {
   autoSaveIntervalMs: number;
   showGrid: boolean;
   snapToGuides: boolean;
-  googleAccounts?: GoogleAccountProfile[];
-  activeGoogleAccountId?: string;
-  autoSwitchOnQuotaExceeded?: boolean;
 }

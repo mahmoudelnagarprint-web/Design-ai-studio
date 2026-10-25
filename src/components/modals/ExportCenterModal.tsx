@@ -1,240 +1,161 @@
 import React, { useState } from 'react';
 import { useStudio } from '../../context/StudioContext';
 import { exportProjectPackage, exportPromptPackage } from '../../services/storage';
-import {
-  X,
-  Download,
-  FileCode,
-  Image,
-  Flame,
-  FileCheck,
-  CheckCircle2,
-  Sliders,
-  Layers,
-  Sparkles,
-} from 'lucide-react';
+import { X, Download, Image as ImageIcon, CheckCircle2, AlertCircle, Sliders, Layers, Sparkles, Loader2 } from 'lucide-react';
+
+type ExportFormat = 'PNG' | 'JPEG' | 'WebP' | 'PROMPT_PACKAGE' | 'PROJECT_PACKAGE';
+
+const rasterMimeTypes: Record<'PNG' | 'JPEG' | 'WebP', string> = {
+  PNG: 'image/png',
+  JPEG: 'image/jpeg',
+  WebP: 'image/webp',
+};
 
 export const ExportCenterModal: React.FC = () => {
   const { isExportCenterOpen, setIsExportCenterOpen, activeProject, activePrompt, settings } = useStudio();
   const isAr = settings.language === 'ar';
-
-  const [selectedFormat, setSelectedFormat] = useState<'PNG' | 'JPG' | 'WebP' | 'PDF' | 'SVG' | 'DXF' | 'PROMPT_PACKAGE' | 'PROJECT_PACKAGE'>('PNG');
-  const [resolutionDpi, setResolutionDpi] = useState<300 | 150 | 72 | 600>(300);
-  const [quality, setQuality] = useState(100);
+  const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('PNG');
+  const [quality, setQuality] = useState(92);
   const [isExporting, setIsExporting] = useState(false);
   const [exportedSuccess, setExportedSuccess] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   if (!isExportCenterOpen) return null;
 
-  const handleExport = () => {
+  const rasterizeCurrentImage = async (format: 'PNG' | 'JPEG' | 'WebP'): Promise<Blob> => {
+    const source = activePrompt?.generatedResults?.[0]?.url || activeProject.originalImages?.[0] || '';
+    if (!source) throw new Error(isAr ? 'لا توجد صورة للتصدير.' : 'There is no image to export.');
+
+    const image = new Image();
+    if (!source.startsWith('data:')) image.crossOrigin = 'anonymous';
+    image.src = source;
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error(isAr ? 'تعذر تحميل الصورة؛ قد يمنع مصدرها التحويل بسبب CORS.' : 'Could not load the image; its source may block canvas conversion via CORS.'));
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error(isAr ? 'تعذر إنشاء لوحة التصدير.' : 'Could not create the export canvas.');
+    context.drawImage(image, 0, 0);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error(isAr ? 'فشل تحويل الصورة إلى الصيغة المطلوبة.' : 'Image conversion failed.')),
+        rasterMimeTypes[format],
+        format === 'PNG' ? undefined : quality / 100,
+      );
+    });
+  };
+
+  const handleExport = async () => {
     setIsExporting(true);
     setExportedSuccess(false);
-
-    setTimeout(() => {
+    setExportError(null);
+    try {
       if (selectedFormat === 'PROJECT_PACKAGE') {
         exportProjectPackage(activeProject);
-      } else if (selectedFormat === 'PROMPT_PACKAGE' && activePrompt) {
+      } else if (selectedFormat === 'PROMPT_PACKAGE') {
+        if (!activePrompt) throw new Error(isAr ? 'لا يوجد برومبت نشط للتصدير.' : 'There is no active prompt to export.');
         exportPromptPackage(activePrompt);
       } else {
-        // Download current result or composite
-        const resultUrl =
-          activePrompt?.generatedResults?.[0]?.url ||
-          activeProject.originalImages?.[0] ||
-          '';
-
+        const blob = await rasterizeCurrentImage(selectedFormat);
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = resultUrl;
-        link.download = `${activeProject.name.replace(/\s+/g, '_')}_${resolutionDpi}DPI.${selectedFormat.toLowerCase()}`;
+        const extension = selectedFormat === 'JPEG' ? 'jpg' : selectedFormat.toLowerCase();
+        link.href = url;
+        link.download = `${activeProject.name.trim().replace(/[^\p{L}\p{N}_-]+/gu, '_') || 'design'}.${extension}`;
         document.body.appendChild(link);
         link.click();
         link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-
-      setIsExporting(false);
       setExportedSuccess(true);
-      setTimeout(() => setExportedSuccess(false), 3000);
-    }, 600);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : (isAr ? 'فشل التصدير.' : 'Export failed.'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const formats = [
-    { id: 'PNG', label: 'PNG Image', descAr: 'دقة فائقة مع دعم الشفافية', descEn: 'Lossless with transparency', icon: Image },
-    { id: 'JPG', label: 'JPEG Image', descAr: 'مناسب للطباعة والويب بحجم مضغوط', descEn: 'Optimized for web & print', icon: Image },
-    { id: 'WebP', label: 'WebP Next-Gen', descAr: 'صيغة حديثة عالية الضغط', descEn: 'Modern high compression', icon: Image },
-    { id: 'PDF', label: 'PDF Print Vector', descAr: 'جاهز لمطابع الديجيتال والأوفست', descEn: 'Ready for digital & offset press', icon: FileCheck },
-    { id: 'SVG', label: 'SVG Vector Curves', descAr: 'متجهات قابلة للتحجيم بدون فقد', descEn: 'Infinite scaling vectors', icon: FileCode },
-    { id: 'DXF', label: 'DXF Laser Cut Cad', descAr: 'متوافق مع ماكينات الليزر وCNC', descEn: 'Laser cutting & CNC vector file', icon: Flame },
-    { id: 'PROMPT_PACKAGE', label: 'Prompt Package (JSON)', descAr: 'حزمة البرومبت مع كل الصور والإصدارات', descEn: 'Complete prompt with refs & history', icon: Sparkles },
-    { id: 'PROJECT_PACKAGE', label: 'Project Package (JSON)', descAr: 'نسخة احتياطية كاملة للمشروع', descEn: 'Full project snapshot backup', icon: Layers },
+  const formats: { id: ExportFormat; label: string; descAr: string; descEn: string; icon: React.ElementType }[] = [
+    { id: 'PNG', label: 'PNG Image', descAr: 'تحويل نقطي يحافظ على الشفافية', descEn: 'Raster conversion with transparency', icon: ImageIcon },
+    { id: 'JPEG', label: 'JPEG Image', descAr: 'تحويل نقطي مضغوط', descEn: 'Compressed raster conversion', icon: ImageIcon },
+    { id: 'WebP', label: 'WebP Image', descAr: 'تحويل نقطي حديث', descEn: 'Modern raster conversion', icon: ImageIcon },
+    { id: 'PROMPT_PACKAGE', label: 'Prompt Package (JSON)', descAr: 'حزمة البرومبت وبياناته', descEn: 'Prompt and its data', icon: Sparkles },
+    { id: 'PROJECT_PACKAGE', label: 'Project Package (JSON)', descAr: 'نسخة من بيانات المشروع', descEn: 'Project data snapshot', icon: Layers },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-[#0e1422] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-900/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#0e1422] shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/60 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-              <Download className="w-5 h-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/20 text-amber-400">
+              <Download className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-100">
-                {isAr ? 'مركز التصدير الاحترافي' : 'Professional Export Center'}
-              </h2>
-              <p className="text-xs text-slate-400">
-                {activeProject.name} • {activeProject.printSettings?.widthCm}×{activeProject.printSettings?.heightCm} cm
-              </p>
+              <h2 className="text-base font-bold text-slate-100">{isAr ? 'مركز التصدير' : 'Export Center'}</h2>
+              <p className="text-xs text-slate-400">{activeProject.name}</p>
             </div>
           </div>
-          <button
-            onClick={() => setIsExportCenterOpen(false)}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button type="button" aria-label={isAr ? 'إغلاق' : 'Close'} onClick={() => setIsExportCenterOpen(false)} className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Format Selection Grid */}
+        <div className="flex-1 space-y-5 overflow-y-auto p-6">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-              {isAr ? 'اختر صيغة التصدير المناسبة:' : 'Select Export Format:'}
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {formats.map((fmt) => {
-                const Icon = fmt.icon;
-                const isSelected = selectedFormat === fmt.id;
+            <label className="mb-3 block text-xs font-bold uppercase tracking-wider text-slate-400">{isAr ? 'اختر نوع التصدير' : 'Select export type'}</label>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {formats.map((format) => {
+                const Icon = format.icon;
+                const selected = selectedFormat === format.id;
                 return (
-                  <button
-                    key={fmt.id}
-                    onClick={() => setSelectedFormat(fmt.id as any)}
-                    className={`flex items-start gap-3 p-3 rounded-xl border text-right transition-all ${
-                      isSelected
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-300 shadow-md shadow-amber-950/20'
-                        : 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/60 text-slate-300'
-                    }`}
-                  >
-                    <div
-                      className={`p-2 rounded-lg shrink-0 ${
-                        isSelected ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <div className="truncate">
-                      <div className="text-xs font-bold text-slate-100">{fmt.label}</div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {isAr ? fmt.descAr : fmt.descEn}
-                      </div>
-                    </div>
+                  <button key={format.id} type="button" onClick={() => setSelectedFormat(format.id)} className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${selected ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-800/60'}`}>
+                    <span className={`shrink-0 rounded-lg p-2 ${selected ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}><Icon className="h-4 w-4" /></span>
+                    <span className="truncate">
+                      <span className="block text-xs font-bold text-slate-100">{format.label}</span>
+                      <span className="block truncate text-[11px] text-slate-400">{isAr ? format.descAr : format.descEn}</span>
+                    </span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Settings Section (for raster formats) */}
-          {['PNG', 'JPG', 'WebP', 'PDF'].includes(selectedFormat) && (
-            <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-4">
+          {['JPEG', 'WebP'].includes(selectedFormat) && (
+            <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                <Sliders className="w-4 h-4 text-amber-400" />
-                <span>{isAr ? 'إعدادات الجودة ودقة الطباعة' : 'Resolution & Print Quality'}</span>
+                <Sliders className="h-4 w-4 text-amber-400" />
+                <span>{isAr ? 'جودة التحويل' : 'Conversion quality'}</span>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1.5">
-                    {isAr ? 'كثافة النقط (DPI)' : 'Print DPI'}
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[72, 150, 300, 600].map((dpiVal) => (
-                      <button
-                        key={dpiVal}
-                        onClick={() => setResolutionDpi(dpiVal as any)}
-                        className={`py-1.5 text-xs rounded-lg font-mono font-medium border transition-colors ${
-                          resolutionDpi === dpiVal
-                            ? 'border-amber-500 bg-amber-500/20 text-amber-300'
-                            : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {dpiVal}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-400 mb-1.5">
-                    <span>{isAr ? 'مستوى الضغط والجودة' : 'Quality'}</span>
-                    <span className="font-mono text-amber-400">{quality}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="60"
-                    max="100"
-                    value={quality}
-                    onChange={(e) => setQuality(Number(e.target.value))}
-                    className="w-full accent-amber-500 bg-slate-950 rounded-lg cursor-pointer"
-                  />
-                </div>
+              <div className="flex justify-between text-[11px] text-slate-400">
+                <span>{isAr ? 'ضغط الصورة' : 'Image quality'}</span><span className="font-mono text-amber-400">{quality}%</span>
               </div>
+              <input type="range" min="50" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} className="w-full cursor-pointer accent-amber-500" />
             </div>
           )}
 
-          {/* DXF / Laser Notification */}
-          {selectedFormat === 'DXF' && (
-            <div className="p-3.5 rounded-xl border border-red-500/30 bg-red-950/20 text-xs text-red-200/90 flex items-start gap-2.5">
-              <Flame className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">{isAr ? 'ملف جاهز لماكينات الليزر:' : 'Laser Ready Vector:'} </span>
-                {isAr
-                  ? 'تم فحص المسارات تلقائيًا للتأكد من إغلاق المنحنيات وإزالة الخطوط المزدوجة وتحديد نقاط البداية والنهاية للقص السلس على الخشب والأكريليك.'
-                  : 'Paths checked and verified for laser cutting without duplicate or open lines.'}
-              </div>
-            </div>
+          {['PNG', 'JPEG', 'WebP'].includes(selectedFormat) && (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
+              {isAr ? 'يتم تحويل الصورة على أبعاد البكسل الأصلية. لا يضيف هذا التصدير بيانات DPI أو ملف CMYK/ICC، ولا ينشئ PDF أو مسارات متجهة.' : 'The image is converted at its original pixel dimensions. This does not add DPI metadata or a CMYK/ICC profile, and does not create PDF or vector paths.'}
+            </p>
           )}
 
-          {/* Success feedback */}
-          {exportedSuccess && (
-            <div className="p-3 rounded-xl border border-emerald-500/40 bg-emerald-950/20 text-xs text-emerald-300 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{isAr ? 'تم تصدير وحفظ الملف بنجاح على جهازك!' : 'File exported successfully!'}</span>
-            </div>
-          )}
+          {exportError && <p role="alert" className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{exportError}</p>}
+          {exportedSuccess && <p role="status" className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-950/20 p-3 text-xs text-emerald-300"><CheckCircle2 className="h-4 w-4" />{isAr ? 'تم إنشاء ملف التصدير وبدء التنزيل.' : 'Export file created and download started.'}</p>}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-slate-800 px-6 py-4 bg-slate-900/60">
-          <div className="text-xs text-slate-400">
-            {selectedFormat.includes('PACKAGE')
-              ? isAr
-                ? 'حزمة مستقلة قابلة للاسترجاع لاحقًا'
-                : 'Standalone portable package'
-              : `${activeProject.printSettings?.widthCm}×${activeProject.printSettings?.heightCm} cm • ${resolutionDpi} DPI`}
-          </div>
-
+        <div className="flex items-center justify-between border-t border-slate-800 bg-slate-900/60 px-6 py-4">
+          <p className="text-xs text-slate-400">{selectedFormat.includes('PACKAGE') ? (isAr ? 'حزمة بيانات JSON قابلة للحفظ' : 'Downloadable JSON data package') : (isAr ? 'تحويل صورة نقطية؛ لا يتضمن مواصفات طباعة' : 'Raster conversion; no print-production specifications')}</p>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsExportCenterOpen(false)}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-            >
-              {isAr ? 'إلغاء' : 'Cancel'}
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-bold shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50"
-            >
-              <Download className="w-4 h-4" />
-              <span>
-                {isExporting
-                  ? isAr
-                    ? 'جاري التصدير...'
-                    : 'Exporting...'
-                  : isAr
-                  ? `تحميل ملف ${selectedFormat}`
-                  : `Download ${selectedFormat}`}
-              </span>
+            <button type="button" onClick={() => setIsExportCenterOpen(false)} className="rounded-xl px-4 py-2 text-xs font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white">{isAr ? 'إغلاق' : 'Close'}</button>
+            <button type="button" onClick={handleExport} disabled={isExporting} className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-5 py-2 text-xs font-bold text-slate-950 shadow-lg shadow-amber-500/20 transition-all hover:from-amber-400 hover:to-amber-500 disabled:opacity-50">
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              <span>{isExporting ? (isAr ? 'جارٍ التصدير...' : 'Exporting...') : `${isAr ? 'تصدير' : 'Export'} ${selectedFormat}`}</span>
             </button>
           </div>
         </div>

@@ -17,26 +17,14 @@ export const ColorsView: React.FC = () => {
 
   const [isExtracting, setIsExtracting] = useState(false);
   const [copiedHex, setCopiedHex] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const [colorData, setColorData] = useState<any>({
-    paletteName: 'Royal Emerald & Antique Gold (الزمرد الملكي والذهب)',
-    mainColors: [
-      { hex: '#0F2A1D', name: 'Deep Emerald Green', percentage: 48 },
-      { hex: '#0B1410', name: 'Obsidian Velvet', percentage: 32 },
-    ],
-    secondaryColors: [
-      { hex: '#2F5D48', name: 'Sage Highlight', percentage: 12 },
-      { hex: '#E2DCD5', name: 'Parchment Academic', percentage: 5 },
-    ],
-    accentColors: [
-      { hex: '#D4AF37', name: 'Metallic Antique Gold', percentage: 2 },
-      { hex: '#FDE047', name: 'Champagne Shimmer', percentage: 1 },
-    ],
-    suggestedAlternatives: [
-      { name: 'Midnight Sapphire & Rose Gold', colors: ['#0A1931', '#152D53', '#D48C70', '#F7E7CE'] },
-      { name: 'Imperial Ruby & Champagne', colors: ['#4A0E17', '#2A080D', '#E5E4E2', '#D4AF37'] },
-      { name: 'Monochrome Luxe & Platinum', colors: ['#111827', '#1F2937', '#E5E7EB', '#FFFFFF'] },
-    ],
+    paletteName: '',
+    mainColors: [],
+    secondaryColors: [],
+    accentColors: [],
+    suggestedAlternatives: [],
   });
 
   const currentImage =
@@ -52,14 +40,21 @@ export const ColorsView: React.FC = () => {
   };
 
   const handleExtract = async () => {
+    setAnalysisError(null);
+    if (!currentImage) {
+      setAnalysisError(isAr ? 'اختر صورة قبل استخراج الألوان.' : 'Select an image before extracting colors.');
+      return;
+    }
     setIsExtracting(true);
     try {
       const res = await extractColors(currentImage);
       if (res.success && res.data) {
         setColorData(res.data);
+      } else {
+        setAnalysisError(res.error || (isAr ? 'تعذر استخراج الألوان.' : 'Color extraction failed.'));
       }
     } catch {
-      console.error('Color extraction failed');
+      setAnalysisError(isAr ? 'تعذر الاتصال بخدمة تحليل الألوان.' : 'Could not contact the color analysis service.');
     } finally {
       setIsExtracting(false);
     }
@@ -107,6 +102,12 @@ export const ColorsView: React.FC = () => {
 
         {/* Palettes Grid (8 cols) */}
         <div className="lg:col-span-8 space-y-5">
+          {analysisError && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300">{analysisError}</p>}
+          {!analysisError && !colorData.paletteName && (
+            <p className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-xs text-slate-400">
+              {isAr ? 'لا توجد نتائج بعد. استخرج لوحة الألوان من صورة.' : 'No results yet. Extract a palette from an image.'}
+            </p>
+          )}
           {/* Main Colors */}
           <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 space-y-3">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 block">

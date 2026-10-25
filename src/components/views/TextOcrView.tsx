@@ -17,35 +17,11 @@ export const TextOcrView: React.FC = () => {
   const { activeProject, selectedImageForTool, settings } = useStudio();
   const isAr = settings.language === 'ar';
 
-  const [extractedTexts, setExtractedTexts] = useState<any[]>([
-    {
-      id: 'txt-1',
-      text: 'مبروك التخرج ٢٠٢٦',
-      translated: 'Congratulations Graduation 2026',
-      language: 'Arabic',
-      fontStyle: 'Thuluth / Diwani Arabic Calligraphy',
-      color: '#D4AF37 (Gold)',
-    },
-    {
-      id: 'txt-2',
-      text: 'المهندس / أحمد النجار',
-      translated: 'Eng. Ahmed El Nagar',
-      language: 'Arabic',
-      fontStyle: 'Cairo Bold Serif',
-      color: '#FEF08A',
-    },
-    {
-      id: 'txt-3',
-      text: 'CLASS OF 2026 • BACHELOR OF EXCELLENCE',
-      translated: 'دفعة 2026 • بكالوريوس التفوق',
-      language: 'English',
-      fontStyle: 'Cinzel Decorative Trajan',
-      color: '#CBD5E1',
-    },
-  ]);
+  const [extractedTexts, setExtractedTexts] = useState<any[]>([]);
 
   const [isExtracting, setIsExtracting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const currentImage =
     selectedImageForTool ||
@@ -60,14 +36,21 @@ export const TextOcrView: React.FC = () => {
   };
 
   const handleRunOcr = async () => {
+    setAnalysisError(null);
+    if (!currentImage) {
+      setAnalysisError(isAr ? 'اختر صورة قبل تشغيل OCR.' : 'Select an image before running OCR.');
+      return;
+    }
     setIsExtracting(true);
     try {
       const res = await ocrText(currentImage);
       if (res.success && res.data?.detectedTexts) {
         setExtractedTexts(res.data.detectedTexts);
+      } else {
+        setAnalysisError(res.error || (isAr ? 'تعذر استخراج النصوص.' : 'Text extraction failed.'));
       }
     } catch {
-      console.error('OCR failed');
+      setAnalysisError(isAr ? 'تعذر الاتصال بخدمة OCR.' : 'Could not contact the OCR service.');
     } finally {
       setIsExtracting(false);
     }
@@ -116,6 +99,13 @@ export const TextOcrView: React.FC = () => {
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
             {isAr ? 'النصوص المستخرجة (Detected Texts)' : 'Detected Texts'}
           </span>
+
+          {analysisError && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300">{analysisError}</p>}
+          {!analysisError && extractedTexts.length === 0 && (
+            <p className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-xs text-slate-400">
+              {isAr ? 'لا توجد نتائج بعد. شغّل OCR على صورة لتحليلها.' : 'No results yet. Run OCR on an image to analyze it.'}
+            </p>
+          )}
 
           {extractedTexts.map((item, idx) => (
             <div

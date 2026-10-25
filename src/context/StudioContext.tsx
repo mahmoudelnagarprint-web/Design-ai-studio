@@ -10,7 +10,6 @@ import {
   StudioSettings,
   Layer,
   Asset,
-  GoogleAccountProfile,
   IllustrativePromptCard,
 } from '../types';
 import {
@@ -107,15 +106,8 @@ interface StudioContextType {
   isExportCenterOpen: boolean;
   setIsExportCenterOpen: (open: boolean) => void;
   
-  // Google Accounts & Free Quota Manager
-  googleAccounts: GoogleAccountProfile[];
-  activeGoogleAccount: GoogleAccountProfile;
-  switchGoogleAccount: (accountId: string) => void;
-  addGoogleAccount: (email: string, name?: string, avatarUrl?: string, apiKey?: string) => void;
-  updateGoogleAccount: (accountId: string, updates: Partial<GoogleAccountProfile>) => void;
-  removeGoogleAccount: (accountId: string) => void;
-  isGoogleAccountsModalOpen: boolean;
-  setIsGoogleAccountsModalOpen: (open: boolean) => void;
+  isApiConnectionModalOpen: boolean;
+  setIsApiConnectionModalOpen: (open: boolean) => void;
 
   // Settings & Locale
   settings: StudioSettings;
@@ -142,7 +134,7 @@ export const StudioProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Modals
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [isExportCenterOpen, setIsExportCenterOpen] = useState(false);
-  const [isGoogleAccountsModalOpen, setIsGoogleAccountsModalOpen] = useState(false);
+  const [isApiConnectionModalOpen, setIsApiConnectionModalOpen] = useState(false);
 
   // Undo / Redo history stack (snapshots of active project)
   const [undoStack, setUndoStack] = useState<Project[]>([]);
@@ -178,7 +170,7 @@ export const StudioProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       widthCm: 30,
       heightCm: 40,
       dpi: 300,
-      colorMode: 'CMYK',
+      colorMode: 'RGB',
       bleedMm: 3,
       safeAreaMm: 5,
       paperType: 'Glossy',
@@ -227,119 +219,6 @@ export const StudioProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     document.documentElement.lang = settings.language;
     document.documentElement.dir = settings.language === 'ar' ? 'rtl' : 'ltr';
   }, [settings.language]);
-
-  // Google Accounts & Free Quota Management
-  const googleAccounts: GoogleAccountProfile[] = settings.googleAccounts || [
-    {
-      id: 'acc-google-1',
-      name: 'Mahmoud El Nagar',
-      email: 'mahmoud.elnagar22@gmail.com',
-      isPrimary: true,
-      dailyFreeRequestsLimit: 1500,
-      usedRequestsToday: 18,
-      lastActive: new Date().toISOString(),
-      quotaStatus: 'active',
-    },
-  ];
-
-  const activeGoogleAccountId = settings.activeGoogleAccountId || googleAccounts[0]?.id || 'acc-google-1';
-  const activeGoogleAccount = googleAccounts.find((a) => a.id === activeGoogleAccountId) || googleAccounts[0];
-
-  const switchGoogleAccount = useCallback(
-    (accountId: string) => {
-      const target = googleAccounts.find((a) => a.id === accountId);
-      if (!target) return;
-      const updatedAccounts = googleAccounts.map((a) => ({
-        ...a,
-        lastActive: a.id === accountId ? new Date().toISOString() : a.lastActive,
-      }));
-      updateSettings({
-        activeGoogleAccountId: accountId,
-        googleAccounts: updatedAccounts,
-      });
-    },
-    [googleAccounts, updateSettings]
-  );
-
-  const addGoogleAccount = useCallback(
-    (email: string, name?: string, avatarUrl?: string, apiKey?: string) => {
-      const cleanEmail = email.trim();
-      if (!cleanEmail) return;
-
-      const existingIndex = googleAccounts.findIndex(
-        (a) => a.email.toLowerCase() === cleanEmail.toLowerCase()
-      );
-
-      if (existingIndex >= 0) {
-        // Already exists: update and activate it
-        const existing = googleAccounts[existingIndex];
-        const updated: GoogleAccountProfile = {
-          ...existing,
-          name: name?.trim() || existing.name,
-          avatarUrl: avatarUrl || existing.avatarUrl,
-          apiKey: apiKey !== undefined ? apiKey : existing.apiKey,
-          isCreditActivated: true,
-          creditPlan: apiKey ? 'Google Cloud / Custom Gemini Key' : 'Google Gemini High-Speed Free Tier',
-          quotaStatus: 'active',
-          lastActive: new Date().toISOString(),
-        };
-        const updatedAccounts = [...googleAccounts];
-        updatedAccounts[existingIndex] = updated;
-
-        updateSettings({
-          googleAccounts: updatedAccounts,
-          activeGoogleAccountId: existing.id,
-        });
-        return;
-      }
-
-      const newAcc: GoogleAccountProfile = {
-        id: `acc-google-${Date.now()}`,
-        name: name?.trim() || cleanEmail.split('@')[0],
-        email: cleanEmail,
-        avatarUrl,
-        apiKey: apiKey?.trim(),
-        isPrimary: googleAccounts.length === 0,
-        dailyFreeRequestsLimit: 1500,
-        usedRequestsToday: 0,
-        lastActive: new Date().toISOString(),
-        quotaStatus: 'active',
-        isCreditActivated: true,
-        creditPlan: apiKey ? 'Google Cloud / Custom Gemini Key' : 'Google Gemini High-Speed Free Tier',
-      };
-      const updatedAccounts = [...googleAccounts, newAcc];
-      updateSettings({
-        googleAccounts: updatedAccounts,
-        activeGoogleAccountId: newAcc.id,
-      });
-    },
-    [googleAccounts, updateSettings]
-  );
-
-  const updateGoogleAccount = useCallback(
-    (accountId: string, updates: Partial<GoogleAccountProfile>) => {
-      const updatedAccounts = googleAccounts.map((a) =>
-        a.id === accountId ? { ...a, ...updates, lastActive: new Date().toISOString() } : a
-      );
-      updateSettings({
-        googleAccounts: updatedAccounts,
-      });
-    },
-    [googleAccounts, updateSettings]
-  );
-
-  const removeGoogleAccount = useCallback(
-    (accountId: string) => {
-      if (googleAccounts.length <= 1) return;
-      const updatedAccounts = googleAccounts.filter((a) => a.id !== accountId);
-      const newActiveId = accountId === activeGoogleAccountId ? updatedAccounts[0].id : activeGoogleAccountId;
-      updateSettings({
-        googleAccounts: updatedAccounts,
-        activeGoogleAccountId: newActiveId,
-      });
-    },
-    [googleAccounts, activeGoogleAccountId, updateSettings]
-  );
 
   // Push snapshot to undo stack before mutating
   const pushSnapshot = useCallback(() => {
@@ -478,7 +357,7 @@ export const StudioProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         widthCm,
         heightCm,
         dpi: 300,
-        colorMode: 'CMYK',
+        colorMode: 'RGB',
         bleedMm: 3,
         safeAreaMm: 5,
         paperType: 'Glossy',
@@ -1066,14 +945,8 @@ export const StudioProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setIsCopilotOpen,
         isExportCenterOpen,
         setIsExportCenterOpen,
-        googleAccounts,
-        activeGoogleAccount,
-        switchGoogleAccount,
-        addGoogleAccount,
-        updateGoogleAccount,
-        removeGoogleAccount,
-        isGoogleAccountsModalOpen,
-        setIsGoogleAccountsModalOpen,
+        isApiConnectionModalOpen,
+        setIsApiConnectionModalOpen,
         settings,
         updateSettings,
       }}

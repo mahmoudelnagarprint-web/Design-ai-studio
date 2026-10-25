@@ -10,37 +10,12 @@ export interface ApiResponse<T = any> {
 export async function testAiConnection(): Promise<{ success: boolean; message: string }> {
   try {
     const res = await fetch('/api/test-connection', { method: 'POST' });
-    return await res.json();
-  } catch (err: any) {
-    return { success: false, message: err?.message || 'Network connection failed' };
-  }
-}
-
-export async function verifyAccountCredit(email: string, apiKey?: string): Promise<{
-  success: boolean;
-  creditActive: boolean;
-  plan: string;
-  dailyRequests: number;
-  rpm: number;
-  message: string;
-  hasCustomKey?: boolean;
-}> {
-  try {
-    const res = await fetch('/api/verify-account-credit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, apiKey }),
-    });
-    return await res.json();
-  } catch (err: any) {
-    return {
-      success: true,
-      creditActive: true,
-      plan: 'Google Gemini Free Tier',
-      dailyRequests: 1500,
-      rpm: 15,
-      message: 'تم تفعيل رصيد الحساب المتاح (1,500 طلب/يوم)',
-    };
+    const data = await res.json();
+    return res.ok
+      ? data
+      : { success: false, message: data.message || data.error || 'Gemini connection failed' };
+  } catch {
+    return { success: false, message: 'Network connection failed' };
   }
 }
 
@@ -125,7 +100,8 @@ export async function ocrText(imageBase64: string, mimeType = 'image/jpeg'): Pro
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageBase64, mimeType }),
     });
-    return await res.json();
+    const data = await res.json();
+    return res.ok ? data : { success: false, error: data.error || 'OCR request failed' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'OCR request failed' };
   }
@@ -138,7 +114,8 @@ export async function detectFont(imageBase64: string, mimeType = 'image/jpeg'): 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageBase64, mimeType }),
     });
-    return await res.json();
+    const data = await res.json();
+    return res.ok ? data : { success: false, error: data.error || 'Font detection failed' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Font detection failed' };
   }
@@ -151,7 +128,8 @@ export async function extractColors(imageBase64: string, mimeType = 'image/jpeg'
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageBase64, mimeType }),
     });
-    return await res.json();
+    const data = await res.json();
+    return res.ok ? data : { success: false, error: data.error || 'Color extraction failed' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Color extraction failed' };
   }
@@ -169,7 +147,7 @@ export async function sendAssistantMessage(params: {
       body: JSON.stringify(params),
     });
     const data = await res.json();
-    return data;
+    return res.ok ? data : { success: false, error: data.error || 'Assistant request failed' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Assistant request failed' };
   }
@@ -198,7 +176,7 @@ export async function generateAiImage(params: {
       body: JSON.stringify(params),
     });
     const data = await res.json();
-    return data;
+    return res.ok ? data : { success: false, error: data.error || 'Image generation failed' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Image generation failed' };
   }
@@ -224,4 +202,3 @@ export async function cloneCollageTemplate(imageBase64: string): Promise<{
     return { success: false, useClientScanner: true };
   }
 }
-

@@ -136,7 +136,7 @@ const FONT_LIBRARY = [
   { id: 'Cinzel', name: 'Cinzel (Royal Engraved)', sample: 'EXCELLENCE & HONOR' },
   { id: 'Outfit', name: 'Outfit (2028 Geometric)', sample: 'MODERN STUDIO' },
   { id: 'Plus Jakarta Sans', name: 'Plus Jakarta (Editorial)', sample: 'CREATIVE EDITION' },
-  { id: 'JetBrains Mono', name: 'JetBrains Mono (Tech)', sample: '30×40 CM • 300 DPI' },
+  { id: 'JetBrains Mono', name: 'JetBrains Mono (Tech)', sample: '30×40 CM • PNG preview' },
 ];
 
 const STICKER_CATEGORIES = [
@@ -1471,7 +1471,7 @@ export const CollageStudioView: React.FC = () => {
             className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/20 transition-all whitespace-nowrap shrink-0 disabled:opacity-50"
           >
             {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            <span>{isAr ? 'تحميل الكولاج (300 DPI)' : 'Export High-Res PNG'}</span>
+            <span>{isAr ? 'تحميل معاينة PNG' : 'Export PNG preview'}</span>
           </button>
         </div>
       </div>
@@ -2597,7 +2597,7 @@ export const CollageStudioView: React.FC = () => {
                           ? 'جاري توليد الصورة في الخانة...'
                           : 'Generating into Slot...'
                         : isAr
-                        ? `توليد في الخانة #${selectedSlotIdx + 1} الآن (مجاناً)`
+                        ? `توليد في الخانة #${selectedSlotIdx + 1} الآن`
                         : `Generate into Slot #${selectedSlotIdx + 1}`}
                     </span>
                   </button>
