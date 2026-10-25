@@ -428,19 +428,26 @@ export const CollageStudioView: React.FC = () => {
     }));
   });
 
-  // --- Selected Slot & Interactive Drag State ---
+  // --- Selected Slot, Multi-Select & Interactive Drag State ---
   const [selectedSlotIdx, setSelectedSlotIdx] = useState<number>(0);
+  const [selectedSlotIndices, setSelectedSlotIndices] = useState<number[]>([0]);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
   const [swapSourceIdx, setSwapSourceIdx] = useState<number | null>(null);
   const [isDraggingPan, setIsDraggingPan] = useState<boolean>(false);
-  const panStartRef = useRef<{ x: number; y: number; initialPanX: number; initialPanY: number } | null>(null);
+  const panStartRef = useRef<{
+    x: number;
+    y: number;
+    initialPans: Record<number, { panX: number; panY: number }>;
+  } | null>(null);
 
-  // --- Free Frame Move / Resize Drag State ---
+  // --- Free Frame Move / Resize Drag State (Supports Single or Multi-Selected Frames) ---
   const [frameDragState, setFrameDragState] = useState<{
     slotIdx: number;
+    targetIndices: number[];
     mode: 'move' | 'resize-se' | 'resize-e' | 'resize-s' | 'resize-nw';
     startX: number;
     startY: number;
-    initialSlot: LayoutSlotDef;
+    initialSlots: Record<number, LayoutSlotDef>;
   } | null>(null);
 
   // --- Free Overlays (Text & Stickers) ---
@@ -535,6 +542,55 @@ export const CollageStudioView: React.FC = () => {
     return customSlots || activeLayoutPreset.slots;
   }, [customSlots, activeLayoutPreset]);
 
+  // Active target indices (normalized to current effectiveSlots count)
+  const activeTargetIndices: number[] = React.useMemo(() => {
+    const valid = selectedSlotIndices.filter((i) => i >= 0 && i < effectiveSlots.length);
+    if (valid.length > 0) return valid;
+    const fallback = Math.max(0, Math.min(selectedSlotIdx, effectiveSlots.length - 1));
+    return [fallback];
+  }, [selectedSlotIndices, selectedSlotIdx, effectiveSlots.length]);
+
+  const isMultipleSelected = activeTargetIndices.length > 1;
+  const isAllSelected =
+    effectiveSlots.length > 1 && activeTargetIndices.length === effectiveSlots.length;
+
+  // Select All Slots
+  const handleSelectAllSlots = () => {
+    const all = Array.from({ length: effectiveSlots.length }, (_, i) => i);
+    setSelectedSlotIndices(all);
+    setIsMultiSelectMode(true);
+    showToast(
+      isAr
+        ? `تم تحديد كل الصور (${all.length} صور)! يمكنك الآن تكبيرهم أو تحريكهم أو تحجيم إطاراتهم معاً ✨`
+        : `Selected all ${all.length} photos! You can now zoom, pan, or resize them together.`
+    );
+  };
+
+  // Clear Multi-Select (Return to Single Selection)
+  const handleClearMultiSelect = () => {
+    const primary = Math.max(0, Math.min(selectedSlotIdx, effectiveSlots.length - 1));
+    setSelectedSlotIndices([primary]);
+    setIsMultiSelectMode(false);
+    showToast(isAr ? 'تم العودة لوضع التحديد الفردي للصورة.' : 'Switched to single photo selection.');
+  };
+
+  // Toggle or Select a Slot
+  const handleSelectSlotItem = (index: number, additive?: boolean) => {
+    setSelectedSlotIdx(index);
+    if (additive || isMultiSelectMode) {
+      setSelectedSlotIndices((prev) => {
+        const clean = prev.filter((i) => i >= 0 && i < effectiveSlots.length);
+        if (clean.includes(index)) {
+          if (clean.length <= 1) return [index];
+          return clean.filter((i) => i !== index);
+        }
+        return [...clean, index];
+      });
+    } else {
+      setSelectedSlotIndices([index]);
+    }
+  };
+
   // Select a layout preset
   const handleSelectLayoutPreset = (preset: CollageLayoutPreset) => {
     setActiveLayoutId(preset.id);
@@ -543,6 +599,10 @@ export const CollageStudioView: React.FC = () => {
     if (selectedSlotIdx >= preset.photoCount) {
       setSelectedSlotIdx(0);
     }
+    setSelectedSlotIndices((prev) => {
+      const valid = prev.filter((i) => i < preset.photoCount);
+      return valid.length > 0 ? valid : [0];
+    });
   };
 
   // ============================================================================
@@ -582,6 +642,7 @@ export const CollageStudioView: React.FC = () => {
         setCustomSlots(detectedSlots);
         setNumPhotos(detectedSlots.length);
         setSelectedSlotIdx(0);
+        setSelectedSlotIndices([0]);
         showToast(
           isAr
             ? `تم تحليل واستنساخ القالب بنجاح (${detectedSlots.length} خانات صور) وتطبيقه على اللوحة! 🎯`
@@ -642,6 +703,7 @@ export const CollageStudioView: React.FC = () => {
           setCustomSlots(slots);
           setNumPhotos(slots.length);
           setSelectedSlotIdx(0);
+          setSelectedSlotIndices([0]);
           showToast(
             isAr
               ? `تم تحليل صورة التمبليت المرفقة واستخراج ${slots.length} إطارات صور مطابقة لها تماماً! ✨`
@@ -672,20 +734,67 @@ export const CollageStudioView: React.FC = () => {
     );
   };
 
+  // Update all currently selected slots (single or multi-selected)
+  const updateTargetSlots = (
+    updatesOrFn:
+      | Partial<CollagePhotoSlotState>
+      | ((slot: CollagePhotoSlotState) => Partial<CollagePhotoSlotState>),
+    customIndices?: number[]
+  ) => {
+    const targets = customIndices || activeTargetIndices;
+    setPhotoSlots((prev) =>
+      prev.map((slot, idx) => {
+        if (!targets.includes(idx)) return slot;
+        const patch = typeof updatesOrFn === 'function' ? updatesOrFn(slot) : updatesOrFn;
+        return { ...slot, ...patch };
+      })
+    );
+  };
+
+  // Relative Zoom Delta (+0.15 / -0.15) applied to all selected photos
+  const zoomTargetSlotsByDelta = (delta: number, customIndices?: number[]) => {
+    updateTargetSlots(
+      (slot) => ({
+        zoom: Math.max(0.3, Math.min(4.0, Number(((slot.zoom || 1) + delta).toFixed(2)))),
+      }),
+      customIndices
+    );
+  };
+
+  // Scale physical frame boxes (w, h) of all selected frames together
+  const scaleTargetFrames = (deltaPct: number) => {
+    setCustomSlots((prev) => {
+      const base = prev ? [...prev] : effectiveSlots.map((s) => ({ ...s }));
+      return base.map((slot, idx) => {
+        if (!activeTargetIndices.includes(idx)) return slot;
+        const newW = Math.max(8, Math.min(100, Number((slot.w + deltaPct).toFixed(1))));
+        const newH = Math.max(8, Math.min(100, Number((slot.h + deltaPct).toFixed(1))));
+        const cx = slot.x + slot.w / 2;
+        const cy = slot.y + slot.h / 2;
+        const newX = Math.max(0, Math.min(100 - newW, Number((cx - newW / 2).toFixed(1))));
+        const newY = Math.max(0, Math.min(100 - newH, Number((cy - newH / 2).toFixed(1))));
+        return { ...slot, x: newX, y: newY, w: newW, h: newH };
+      });
+    });
+  };
+
   const applyFilterToAllSlots = (filter: PhotoFilterType) => {
     setPhotoSlots((prev) => prev.map((slot) => ({ ...slot, filter })));
     showToast(isAr ? 'تم تطبيق الفلتر اللوني على جميع صور الكولاج ✨' : 'Filter applied to all photos!');
   };
 
-  // Mouse Wheel Zoom directly on any photo slot!
+  // Mouse Wheel Zoom directly on any photo slot (Zooms all selected slots if part of selection!)
   const handleSlotWheel = (e: React.WheelEvent, index: number) => {
     e.preventDefault();
     e.stopPropagation();
-    setSelectedSlotIdx(index);
-    const currentZoom = photoSlots[index]?.zoom || 1;
     const delta = e.deltaY < 0 ? 0.12 : -0.12;
-    const nextZoom = Math.max(0.3, Math.min(4.0, Number((currentZoom + delta).toFixed(2))));
-    updateSlot(index, { zoom: nextZoom });
+    if (activeTargetIndices.includes(index) && activeTargetIndices.length > 1) {
+      zoomTargetSlotsByDelta(delta, activeTargetIndices);
+    } else {
+      setSelectedSlotIdx(index);
+      setSelectedSlotIndices([index]);
+      zoomTargetSlotsByDelta(delta, [index]);
+    }
   };
 
   // Start dragging either photo Pan OR Frame Geometry Move/Resize
@@ -727,79 +836,125 @@ export const CollageStudioView: React.FC = () => {
       }
       setSwapSourceIdx(null);
       setSelectedSlotIdx(index);
+      setSelectedSlotIndices([index]);
       return;
     }
 
-    setSelectedSlotIdx(index);
+    const isModifier = e.ctrlKey || e.metaKey || e.shiftKey;
+    let nextTargets = activeTargetIndices;
+
+    if ( !resizeHandle && (isModifier || isMultiSelectMode) ) {
+      setSelectedSlotIdx(index);
+      const clean = activeTargetIndices;
+      if (clean.includes(index)) {
+        nextTargets = clean.length > 1 ? clean.filter((i) => i !== index) : [index];
+      } else {
+        nextTargets = [...clean, index];
+      }
+      setSelectedSlotIndices(nextTargets);
+    } else if (!activeTargetIndices.includes(index)) {
+      setSelectedSlotIdx(index);
+      nextTargets = [index];
+      setSelectedSlotIndices([index]);
+    } else {
+      setSelectedSlotIdx(index);
+    }
 
     // If in 'edit-frame' mode or user grabbed a resize handle
     if (stageMode === 'edit-frame' || resizeHandle) {
       const currentSlots = customSlots ? [...customSlots] : effectiveSlots.map((s) => ({ ...s }));
       if (!customSlots) setCustomSlots(currentSlots);
+      const initialSlots: Record<number, LayoutSlotDef> = {};
+      nextTargets.forEach((tIdx) => {
+        if (currentSlots[tIdx]) {
+          initialSlots[tIdx] = { ...currentSlots[tIdx] };
+        }
+      });
+      if (!initialSlots[index] && currentSlots[index]) {
+        initialSlots[index] = { ...currentSlots[index] };
+      }
+
       setFrameDragState({
         slotIdx: index,
+        targetIndices: nextTargets.includes(index) ? nextTargets : [index],
         mode: resizeHandle || 'move',
         startX: e.clientX,
         startY: e.clientY,
-        initialSlot: { ...currentSlots[index] },
+        initialSlots,
       });
       return;
     }
 
-    // Default: Pan photo inside frame
+    // Default: Pan photo(s) inside frame(s)
+    const initialPans: Record<number, { panX: number; panY: number }> = {};
+    nextTargets.forEach((tIdx) => {
+      initialPans[tIdx] = {
+        panX: photoSlots[tIdx]?.panX || 0,
+        panY: photoSlots[tIdx]?.panY || 0,
+      };
+    });
     setIsDraggingPan(true);
     panStartRef.current = {
       x: e.clientX,
       y: e.clientY,
-      initialPanX: photoSlots[index]?.panX || 0,
-      initialPanY: photoSlots[index]?.panY || 0,
+      initialPans,
     };
   };
 
   const handleStagePointerMove = (e: React.PointerEvent) => {
-    // 1. Free Frame Move / Resize
+    // 1. Free Frame Move / Resize (Supports Multi-Selected Frames Simultaneously!)
     if (frameDragState && stageRef.current) {
       const rect = stageRef.current.getBoundingClientRect();
       const dxPct = ((e.clientX - frameDragState.startX) / rect.width) * 100;
       const dyPct = ((e.clientY - frameDragState.startY) / rect.height) * 100;
-      const init = frameDragState.initialSlot;
 
       setCustomSlots((prev) => {
         const list = prev ? [...prev] : effectiveSlots.map((s) => ({ ...s }));
-        const target = { ...list[frameDragState.slotIdx] };
+        frameDragState.targetIndices.forEach((tIdx) => {
+          const init = frameDragState.initialSlots[tIdx];
+          if (!init || !list[tIdx]) return;
+          const target = { ...list[tIdx] };
 
-        if (frameDragState.mode === 'move') {
-          target.x = Math.max(0, Math.min(100 - target.w, Number((init.x + dxPct).toFixed(1))));
-          target.y = Math.max(0, Math.min(100 - target.h, Number((init.y + dyPct).toFixed(1))));
-        } else if (frameDragState.mode === 'resize-se') {
-          target.w = Math.max(8, Math.min(100 - target.x, Number((init.w + dxPct).toFixed(1))));
-          target.h = Math.max(8, Math.min(100 - target.y, Number((init.h + dyPct).toFixed(1))));
-        } else if (frameDragState.mode === 'resize-e') {
-          target.w = Math.max(8, Math.min(100 - target.x, Number((init.w + dxPct).toFixed(1))));
-        } else if (frameDragState.mode === 'resize-s') {
-          target.h = Math.max(8, Math.min(100 - target.y, Number((init.h + dyPct).toFixed(1))));
-        } else if (frameDragState.mode === 'resize-nw') {
-          const newX = Math.max(0, Math.min(init.x + init.w - 8, Number((init.x + dxPct).toFixed(1))));
-          const newY = Math.max(0, Math.min(init.y + init.h - 8, Number((init.y + dyPct).toFixed(1))));
-          target.w = Number((init.w - (newX - init.x)).toFixed(1));
-          target.h = Number((init.h - (newY - init.y)).toFixed(1));
-          target.x = newX;
-          target.y = newY;
-        }
+          if (frameDragState.mode === 'move') {
+            target.x = Math.max(0, Math.min(100 - target.w, Number((init.x + dxPct).toFixed(1))));
+            target.y = Math.max(0, Math.min(100 - target.h, Number((init.y + dyPct).toFixed(1))));
+          } else if (frameDragState.mode === 'resize-se') {
+            target.w = Math.max(8, Math.min(100 - target.x, Number((init.w + dxPct).toFixed(1))));
+            target.h = Math.max(8, Math.min(100 - target.y, Number((init.h + dyPct).toFixed(1))));
+          } else if (frameDragState.mode === 'resize-e') {
+            target.w = Math.max(8, Math.min(100 - target.x, Number((init.w + dxPct).toFixed(1))));
+          } else if (frameDragState.mode === 'resize-s') {
+            target.h = Math.max(8, Math.min(100 - target.y, Number((init.h + dyPct).toFixed(1))));
+          } else if (frameDragState.mode === 'resize-nw') {
+            const newX = Math.max(0, Math.min(init.x + init.w - 8, Number((init.x + dxPct).toFixed(1))));
+            const newY = Math.max(0, Math.min(init.y + init.h - 8, Number((init.y + dyPct).toFixed(1))));
+            target.w = Number((init.w - (newX - init.x)).toFixed(1));
+            target.h = Number((init.h - (newY - init.y)).toFixed(1));
+            target.x = newX;
+            target.y = newY;
+          }
 
-        list[frameDragState.slotIdx] = target;
+          list[tIdx] = target;
+        });
         return list;
       });
       return;
     }
 
-    // 2. Photo Pan inside Frame
+    // 2. Photo Pan inside Frame (Supports Panning All Selected Photos Together!)
     if (isDraggingPan && panStartRef.current) {
       const dx = e.clientX - panStartRef.current.x;
       const dy = e.clientY - panStartRef.current.y;
-      const nextPanX = Math.max(-150, Math.min(150, Math.round(panStartRef.current.initialPanX + dx * 0.45)));
-      const nextPanY = Math.max(-150, Math.min(150, Math.round(panStartRef.current.initialPanY + dy * 0.45)));
-      updateSlot(selectedSlotIdx, { panX: nextPanX, panY: nextPanY });
+      const initialPans = panStartRef.current.initialPans;
+      setPhotoSlots((prev) =>
+        prev.map((slot, idx) => {
+          const initPan = initialPans[idx];
+          if (!initPan) return slot;
+          const nextPanX = Math.max(-150, Math.min(150, Math.round(initPan.panX + dx * 0.45)));
+          const nextPanY = Math.max(-150, Math.min(150, Math.round(initPan.panY + dy * 0.45)));
+          return { ...slot, panX: nextPanX, panY: nextPanY };
+        })
+      );
     } else if (draggingOverlayId && stageRef.current) {
       // 3. Free Text / Sticker Drag
       const rect = stageRef.current.getBoundingClientRect();
@@ -838,6 +993,7 @@ export const CollageStudioView: React.FC = () => {
     setCustomSlots(updated);
     setNumPhotos(updated.length);
     setSelectedSlotIdx(updated.length - 1);
+    setSelectedSlotIndices([updated.length - 1]);
     setStageMode('edit-frame');
     showToast(
       isAr
@@ -852,7 +1008,9 @@ export const CollageStudioView: React.FC = () => {
     const updated = current.filter((_, idx) => idx !== selectedSlotIdx);
     setCustomSlots(updated);
     setNumPhotos(updated.length);
-    setSelectedSlotIdx(Math.max(0, selectedSlotIdx - 1));
+    const nextIdx = Math.max(0, selectedSlotIdx - 1);
+    setSelectedSlotIdx(nextIdx);
+    setSelectedSlotIndices([nextIdx]);
     showToast(isAr ? 'تم حذف الإطار المحدد.' : 'Deleted selected frame.');
   };
 
@@ -1878,10 +2036,86 @@ export const CollageStudioView: React.FC = () => {
             )}
 
             {/* ------------------------------------------------------------- */}
-            {/* TAB 3: UPGRADED PHOTO & FRAME CONTROL ENGINE                  */}
+            {/* TAB 3: UPGRADED PHOTO & FRAME CONTROL ENGINE (MULTI-SELECT)   */}
             {/* ------------------------------------------------------------- */}
             {activeToolTab === 'photos' && (
               <div className="space-y-4">
+                {/* Multi-Selection & Select All Toolbar */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-br from-emerald-950/40 via-[#090d16] to-[#090d16] border border-emerald-500/40 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>
+                        {isAr
+                          ? `التحديد المتعدد وتكبير الصور معاً (${activeTargetIndices.length} محددة)`
+                          : `Multi-Select & Batch Control (${activeTargetIndices.length} Selected)`}
+                      </span>
+                    </span>
+                    {isMultipleSelected && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-[10px] font-bold text-emerald-200">
+                        {isAllSelected
+                          ? isAr
+                            ? 'الكل محدد ✨'
+                            : 'All Selected ✨'
+                          : isAr
+                          ? `${activeTargetIndices.length} صور محددة`
+                          : `${activeTargetIndices.length} Photos`}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllSlots}
+                      className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                        isAllSelected
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow'
+                          : 'bg-slate-900 hover:bg-slate-800 text-emerald-300 border-emerald-500/40'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{isAr ? `تحديد الكل (${effectiveSlots.length})` : `Select All (${effectiveSlots.length})`}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMultiSelectMode(!isMultiSelectMode);
+                        showToast(
+                          !isMultiSelectMode
+                            ? isAr
+                              ? 'تم تفعيل وضع التحديد المتعدد! انقر على أي صور لإضافتها للتحديد وتكبيرها معاً ✨'
+                              : 'Multi-select mode ON! Click any photos to select them together.'
+                            : isAr
+                            ? 'تم إيقاف وضع التحديد المتعدد.'
+                            : 'Multi-select mode OFF.'
+                        );
+                      }}
+                      className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                        isMultiSelectMode && !isAllSelected
+                          ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                          : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-slate-700'
+                      }`}
+                    >
+                      <Grid className="w-3.5 h-3.5" />
+                      <span>{isAr ? 'تحديد أكثر من صورة' : 'Multi-Select'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleClearMultiSelect}
+                      className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                        !isMultipleSelected && !isMultiSelectMode
+                          ? 'bg-slate-800 text-white border-slate-600'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      <span>{isAr ? 'تحديد فردي (١)' : 'Single Select'}</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Mode Switcher: Pan/Zoom Photo Inside Slot vs Move/Resize Slot Frame */}
                 <div className="p-3 rounded-xl bg-[#090d16] border border-slate-800 space-y-2">
                   <span className="block text-xs font-bold text-slate-200">
@@ -1940,7 +2174,13 @@ export const CollageStudioView: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-200">
-                      {isAr ? 'اختر الخانة لتعديل صورتها:' : 'Select Slot to Edit:'}
+                      {isMultiSelectMode
+                        ? isAr
+                          ? 'انقر على الصور لتحديدها/إلغاء تحديدها معاً:'
+                          : 'Click slots to toggle multi-selection:'
+                        : isAr
+                        ? 'اختر الخانة لتعديل صورتها (أو Ctrl+Click للتحديد المتعدد):'
+                        : 'Select Slot (or Ctrl+Click for multi-select):'}
                     </span>
                     <button
                       type="button"
@@ -1948,23 +2188,28 @@ export const CollageStudioView: React.FC = () => {
                       className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      <span>{isAr ? 'رفع عدة صور دفعة واحدة' : 'Batch Upload'}</span>
+                      <span>{isAr ? 'رفع عدة صور' : 'Batch Upload'}</span>
                     </button>
                   </div>
 
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                     {Array.from({ length: effectiveSlots.length }, (_, idx) => {
                       const slot = photoSlots[idx] || photoSlots[0];
-                      const isSel = selectedSlotIdx === idx;
+                      const isInMulti = activeTargetIndices.includes(idx);
+                      const isPrimary = selectedSlotIdx === idx;
                       return (
                         <button
                           key={idx}
                           type="button"
-                          onClick={() => setSelectedSlotIdx(idx)}
+                          onClick={(e) => handleSelectSlotItem(idx, e.ctrlKey || e.metaKey || e.shiftKey)}
                           className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
-                            isSel
-                              ? 'border-amber-400 ring-2 ring-amber-500/30 scale-105'
-                              : 'border-slate-800 opacity-80 hover:opacity-100'
+                            isInMulti
+                              ? isMultipleSelected
+                                ? 'border-emerald-400 ring-2 ring-emerald-500/40 scale-105'
+                                : 'border-amber-400 ring-2 ring-amber-500/30 scale-105'
+                              : isPrimary
+                              ? 'border-amber-400'
+                              : 'border-slate-800 opacity-75 hover:opacity-100'
                           }`}
                         >
                           <img
@@ -1973,6 +2218,17 @@ export const CollageStudioView: React.FC = () => {
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover"
                           />
+                          {isInMulti && (
+                            <span
+                              className={`absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black shadow ${
+                                isMultipleSelected
+                                  ? 'bg-emerald-400 text-slate-950'
+                                  : 'bg-amber-400 text-slate-950'
+                              }`}
+                            >
+                              ✓
+                            </span>
+                          )}
                           <span className="absolute bottom-1 right-1 px-1.5 py-0.2 bg-slate-950/85 text-[10px] font-mono tabular-nums font-bold text-slate-200 rounded">
                             #{idx + 1}
                           </span>
@@ -1987,14 +2243,32 @@ export const CollageStudioView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Selected Photo Controls */}
+                {/* Selected Photo(s) Controls (Applies to Single or All Selected!) */}
                 <div className="p-4 rounded-xl bg-[#090d16] border border-slate-800 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                     <div>
                       <h4 className="text-xs font-bold text-amber-300">
-                        {isAr ? `الخانة المحددة #${selectedSlotIdx + 1}` : `Selected Slot #${selectedSlotIdx + 1}`}
+                        {isMultipleSelected
+                          ? isAllSelected
+                            ? isAr
+                              ? `تحكم جماعي في كل الصور (${activeTargetIndices.length} صور محددة)`
+                              : `Batch Control: All ${activeTargetIndices.length} Photos`
+                            : isAr
+                            ? `تحكم جماعي في (${activeTargetIndices.length}) صور محددة: [${activeTargetIndices
+                                .map((i) => `#${i + 1}`)
+                                .join('، ')}]`
+                            : `Batch Control: ${activeTargetIndices.length} Selected Slots`
+                          : isAr
+                          ? `الخانة المحددة #${selectedSlotIdx + 1}`
+                          : `Selected Slot #${selectedSlotIdx + 1}`}
                       </h4>
-                      <p className="text-[11px] text-slate-400">{activeSlot.label}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {isMultipleSelected
+                          ? isAr
+                            ? 'أي تكبير أو تصغير أو سحب يطبق فوراً على جميع الصور المحددة معاً'
+                            : 'Zooming, panning, or scaling applies to all selected photos simultaneously'
+                          : activeSlot.label}
+                      </p>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -2031,7 +2305,7 @@ export const CollageStudioView: React.FC = () => {
 
                       <button
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { isLocked: !activeSlot.isLocked })}
+                        onClick={() => updateTargetSlots({ isLocked: !activeSlot.isLocked })}
                         className={`p-1.5 rounded-lg border ${
                           activeSlot.isLocked
                             ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
@@ -2043,11 +2317,64 @@ export const CollageStudioView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Zoom (0.3x to 4.0x) + Pan X / Pan Y */}
+                  {/* Quick Batch Zoom & Frame Scale Buttons */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-2.5 rounded-xl bg-slate-950/90 border border-slate-800/90">
+                    {/* 1. Enlarge/Shrink Photos Inside Frames */}
+                    <div className="space-y-1.5">
+                      <span className="block text-[10px] font-bold text-amber-300">
+                        {isAr ? 'تكبير / تصغير الصور المحددة:' : 'Zoom Selected Photos:'}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => zoomTargetSlotsByDelta(-0.15)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold flex items-center justify-center gap-1 border border-slate-700"
+                        >
+                          <ZoomOut className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{isAr ? 'تصغير -' : 'Zoom -'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => zoomTargetSlotsByDelta(0.15)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center justify-center gap-1 shadow"
+                        >
+                          <ZoomIn className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'تكبير +' : 'Zoom +'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 2. Enlarge/Shrink Physical Frame Boxes */}
+                    <div className="space-y-1.5">
+                      <span className="block text-[10px] font-bold text-cyan-300">
+                        {isAr ? 'تكبير / تصغير حجم الإطارات المحددة:' : 'Scale Selected Frames:'}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => scaleTargetFrames(-3)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold flex items-center justify-center gap-1 border border-slate-700"
+                        >
+                          <Minimize2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>{isAr ? 'تصغير الإطار -' : 'Frame -'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => scaleTargetFrames(3)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black flex items-center justify-center gap-1 shadow"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'تكبير الإطار +' : 'Frame +'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Zoom (0.3x to 4.0x) + Pan X / Pan Y Sliders (Apply to all selected!) */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                        <span>{isAr ? 'تصغير / تكبير (Zoom)' : 'Zoom'}</span>
+                        <span>{isAr ? 'زوم الصور المحددة' : 'Zoom'}</span>
                         <span className="font-mono tabular-nums text-amber-300">
                           {Math.round(activeSlot.zoom * 100)}%
                         </span>
@@ -2058,7 +2385,7 @@ export const CollageStudioView: React.FC = () => {
                         max={3.5}
                         step={0.05}
                         value={activeSlot.zoom}
-                        onChange={(e) => updateSlot(selectedSlotIdx, { zoom: Number(e.target.value) })}
+                        onChange={(e) => updateTargetSlots({ zoom: Number(e.target.value) })}
                         className="w-full accent-amber-500"
                       />
                     </div>
@@ -2073,7 +2400,7 @@ export const CollageStudioView: React.FC = () => {
                         min={-150}
                         max={150}
                         value={activeSlot.panX}
-                        onChange={(e) => updateSlot(selectedSlotIdx, { panX: Number(e.target.value) })}
+                        onChange={(e) => updateTargetSlots({ panX: Number(e.target.value) })}
                         className="w-full accent-amber-500"
                       />
                     </div>
@@ -2088,7 +2415,7 @@ export const CollageStudioView: React.FC = () => {
                         min={-150}
                         max={150}
                         value={activeSlot.panY}
-                        onChange={(e) => updateSlot(selectedSlotIdx, { panY: Number(e.target.value) })}
+                        onChange={(e) => updateTargetSlots({ panY: Number(e.target.value) })}
                         className="w-full accent-amber-500"
                       />
                     </div>
@@ -2099,7 +2426,7 @@ export const CollageStudioView: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { zoom: 0.65, panX: 0, panY: 0 })}
+                        onClick={() => updateTargetSlots({ zoom: 0.65, panX: 0, panY: 0 })}
                         className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold flex items-center gap-1"
                       >
                         <Minimize2 className="w-3.5 h-3.5" />
@@ -2107,7 +2434,15 @@ export const CollageStudioView: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { rotation: activeSlot.rotation - 90 })}
+                        onClick={() => updateTargetSlots({ zoom: 1.35 })}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs font-bold flex items-center gap-1"
+                      >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                        <span>135%</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateTargetSlots((s) => ({ rotation: s.rotation - 90 }))}
                         className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs flex items-center gap-1"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
@@ -2115,7 +2450,7 @@ export const CollageStudioView: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { rotation: activeSlot.rotation + 90 })}
+                        onClick={() => updateTargetSlots((s) => ({ rotation: s.rotation + 90 }))}
                         className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs flex items-center gap-1"
                       >
                         <RotateCw className="w-3.5 h-3.5" />
@@ -2123,7 +2458,7 @@ export const CollageStudioView: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { flipX: !activeSlot.flipX })}
+                        onClick={() => updateTargetSlots((s) => ({ flipX: !s.flipX }))}
                         className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 ${
                           activeSlot.flipX ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-200'
                         }`}
@@ -2132,7 +2467,7 @@ export const CollageStudioView: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { flipY: !activeSlot.flipY })}
+                        onClick={() => updateTargetSlots((s) => ({ flipY: !s.flipY }))}
                         className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 ${
                           activeSlot.flipY ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-200'
                         }`}
@@ -2144,7 +2479,7 @@ export const CollageStudioView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() =>
-                        updateSlot(selectedSlotIdx, {
+                        updateTargetSlots({
                           panX: 0,
                           panY: 0,
                           zoom: 1,
@@ -2162,7 +2497,13 @@ export const CollageStudioView: React.FC = () => {
                   {/* Custom Shape Override */}
                   <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
                     <span className="block text-[11px] font-bold text-slate-300">
-                      {isAr ? 'تغيير شكل إطار هذه الخانة:' : 'Slot Frame Shape:'}
+                      {isMultipleSelected
+                        ? isAr
+                          ? `تغيير شكل الإطارات المحددة (${activeTargetIndices.length}):`
+                          : 'Change Shape of Selected Slots:'
+                        : isAr
+                        ? 'تغيير شكل إطار هذه الخانة:'
+                        : 'Slot Frame Shape:'}
                     </span>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                       {(
@@ -2181,7 +2522,7 @@ export const CollageStudioView: React.FC = () => {
                           <button
                             key={sh.id}
                             type="button"
-                            onClick={() => updateSlot(selectedSlotIdx, { customShape: sh.id })}
+                            onClick={() => updateTargetSlots({ customShape: sh.id })}
                             className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all ${
                               currentShape === sh.id
                                 ? 'border-amber-400 bg-amber-500/20 text-amber-300'
@@ -2215,7 +2556,7 @@ export const CollageStudioView: React.FC = () => {
                       <button
                         key={flt.id}
                         type="button"
-                        onClick={() => updateSlot(selectedSlotIdx, { filter: flt.id })}
+                        onClick={() => updateTargetSlots({ filter: flt.id })}
                         className={`px-3 py-2 rounded-xl text-xs font-bold border text-right transition-all ${
                           activeSlot.filter === flt.id
                             ? 'border-amber-400 bg-amber-500/20 text-amber-300'
@@ -2653,68 +2994,162 @@ export const CollageStudioView: React.FC = () => {
         {/* ZONE 2 (7 COLS): INTERACTIVE STAGE & FLOATING CONTROLS            */}
         {/* ================================================================= */}
         <div className="xl:col-span-7 flex flex-col items-center space-y-4">
-          {/* Quick Stage Mode Bar */}
-          <div className="w-full flex flex-wrap items-center justify-between gap-2 bg-slate-900/70 border border-slate-800 px-4 py-2.5 rounded-2xl">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setStageMode('pan-photo')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                  stageMode === 'pan-photo'
-                    ? 'bg-amber-500 text-slate-950 shadow'
-                    : 'bg-slate-800 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Move className="w-3.5 h-3.5" />
-                <span>{isAr ? 'وضع تحريك وتكبير الصور' : 'Pan/Zoom Photos'}</span>
-              </button>
+          {/* Quick Stage Mode & Multi-Select Bar */}
+          <div className="w-full flex flex-col gap-2 bg-slate-900/80 border border-slate-800 px-4 py-3 rounded-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setStageMode('pan-photo')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                    stageMode === 'pan-photo'
+                      ? 'bg-amber-500 text-slate-950 shadow'
+                      : 'bg-slate-800 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Move className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'وضع تحريك وتكبير الصور' : 'Pan/Zoom Photos'}</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setStageMode('edit-frame')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                  stageMode === 'edit-frame'
-                    ? 'bg-cyan-500 text-slate-950 shadow'
-                    : 'bg-slate-800 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>{isAr ? 'وضع تحجيم وسحب الإطارات بحرية' : 'Resize/Move Frames'}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setStageMode('edit-frame')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                    stageMode === 'edit-frame'
+                      ? 'bg-cyan-500 text-slate-950 shadow'
+                      : 'bg-slate-800 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'وضع تحجيم وسحب الإطارات' : 'Resize/Move Frames'}</span>
+                </button>
+              </div>
+
+              {/* Multi-Select & Select All Quick Buttons right above Canvas */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleSelectAllSlots}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                    isAllSelected
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow'
+                      : 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-500/40'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>
+                    {isAr
+                      ? `تحديد كل الصور (${effectiveSlots.length})`
+                      : `Select All (${effectiveSlots.length})`}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMultiSelectMode(!isMultiSelectMode);
+                    showToast(
+                      !isMultiSelectMode
+                        ? isAr
+                          ? 'وضع التحديد المتعدد مفعل: انقر على أي صور على اللوحة لتحديدها وتكبيرها معاً ✨'
+                          : 'Multi-select ON: Click any photos on canvas to select them together.'
+                        : isAr
+                        ? 'تم إيقاف وضع التحديد المتعدد.'
+                        : 'Multi-select OFF.'
+                    );
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                    isMultiSelectMode && !isAllSelected
+                      ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                      : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
+                  }`}
+                >
+                  <Grid className="w-3.5 h-3.5" />
+                  <span>
+                    {isAr
+                      ? `تحديد متعدد (${activeTargetIndices.length})`
+                      : `Multi-Select (${activeTargetIndices.length})`}
+                  </span>
+                </button>
+
+                {isMultipleSelected && (
+                  <button
+                    type="button"
+                    onClick={handleClearMultiSelect}
+                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                  >
+                    {isAr ? 'إلغاء التحديد المتعدد' : 'Single'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() =>
-                  updateSlot(selectedSlotIdx, { zoom: Math.max(0.3, Number((activeSlot.zoom - 0.15).toFixed(2))) })
-                }
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                title="تصغير الصورة"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </button>
-              <span className="font-mono tabular-nums text-amber-400 text-xs font-bold px-1">
-                {Math.round(activeSlot.zoom * 100)}%
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  updateSlot(selectedSlotIdx, { zoom: Math.min(4.0, Number((activeSlot.zoom + 0.15).toFixed(2))) })
-                }
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                title="تكبير الصورة"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => updateSlot(selectedSlotIdx, { rotation: activeSlot.rotation + 90 })}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                title="تدوير 90 درجة"
-              >
-                <RotateCw className="w-4 h-4" />
-              </button>
+            {/* Bottom Row of Stage Bar: Batch Photo Zoom & Batch Frame Scale Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-400">
+                  {isMultipleSelected
+                    ? isAr
+                      ? `زوم الصور المحددة (${activeTargetIndices.length}):`
+                      : `Batch Photo Zoom (${activeTargetIndices.length}):`
+                    : isAr
+                    ? `زوم الصورة #${selectedSlotIdx + 1}:`
+                    : `Photo #${selectedSlotIdx + 1} Zoom:`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => zoomTargetSlotsByDelta(-0.15)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1"
+                  title="تصغير الصور المحددة"
+                >
+                  <ZoomOut className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isAr ? 'تصغير الصور -' : 'Zoom -'}</span>
+                </button>
+                <span className="font-mono tabular-nums text-amber-400 text-xs font-bold px-1.5">
+                  {Math.round(activeSlot.zoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => zoomTargetSlotsByDelta(0.15)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-1 shadow"
+                  title="تكبير الصور المحددة"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'تكبير الصور +' : 'Zoom +'}</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-400">
+                  {isAr ? 'حجم الإطار:' : 'Frame Size:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => scaleTargetFrames(-3)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold flex items-center gap-1 border border-slate-700"
+                  title="تصغير حجم الإطارات المحددة"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'تصغير الإطار -' : 'Frame -'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scaleTargetFrames(3)}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black flex items-center gap-1 shadow"
+                  title="تكبير حجم الإطارات المحددة"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'تكبير الإطار +' : 'Frame +'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateTargetSlots((s) => ({ rotation: s.rotation + 90 }))}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="تدوير 90 درجة"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2763,7 +3198,8 @@ export const CollageStudioView: React.FC = () => {
               {effectiveSlots.map((slotDef, idx) => {
                 const slotState = photoSlots[idx] || photoSlots[0];
                 const shape: SlotShape = slotState.customShape || slotDef.shape || 'rect';
-                const isSelected = selectedSlotIdx === idx;
+                const isSelected = activeTargetIndices.includes(idx);
+                const isPrimarySelected = selectedSlotIdx === idx;
                 const isSwapSource = swapSourceIdx === idx;
                 const filterObj = PHOTO_FILTERS.find((f) => f.id === slotState.filter);
 
@@ -2778,7 +3214,7 @@ export const CollageStudioView: React.FC = () => {
                       width: `calc(${slotDef.w}% - ${slotGap}px)`,
                       height: `calc(${slotDef.h}% - ${slotGap}px)`,
                       transform: slotDef.tilt ? `rotate(${slotDef.tilt}deg)` : undefined,
-                      zIndex: isSelected ? 25 : slotDef.isHero ? 15 : 10 + idx,
+                      zIndex: isPrimarySelected ? 26 : isSelected ? 24 : slotDef.isHero ? 15 : 10 + idx,
                       ...(shape === 'polaroid'
                         ? {
                             backgroundColor: '#f8fafc',
@@ -2790,7 +3226,9 @@ export const CollageStudioView: React.FC = () => {
                     }}
                     className={`absolute cursor-grab active:cursor-grabbing group transition-shadow ${
                       isSelected
-                        ? stageMode === 'edit-frame'
+                        ? isMultipleSelected
+                          ? 'ring-2 ring-emerald-400 shadow-lg shadow-emerald-500/20'
+                          : stageMode === 'edit-frame'
                           ? 'ring-2 ring-cyan-400'
                           : 'ring-2 ring-amber-400'
                         : ''
@@ -2827,8 +3265,13 @@ export const CollageStudioView: React.FC = () => {
                         className="w-full h-full object-cover pointer-events-none transition-transform duration-75"
                       />
 
-                      {/* Slot Index & Hero Lock Badge */}
-                      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-85 group-hover:opacity-100 transition-opacity">
+                      {/* Slot Index, Multi-Select Check & Hero Lock Badge */}
+                      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                        {isSelected && isMultipleSelected && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-400 text-slate-950 font-black text-[9px] shadow">
+                            ✓ محدد
+                          </span>
+                        )}
                         {slotState.isLocked && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[9px] shadow">
                             🔒
@@ -2847,6 +3290,7 @@ export const CollageStudioView: React.FC = () => {
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedSlotIdx(idx);
+                            setSelectedSlotIndices([idx]);
                             singleSlotFileRef.current?.click();
                           }}
                           className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[10px]"
@@ -2860,7 +3304,13 @@ export const CollageStudioView: React.FC = () => {
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
-                              updateSlot(idx, { zoom: Math.max(0.3, Number((slotState.zoom - 0.15).toFixed(2))) });
+                              if (isSelected && isMultipleSelected) {
+                                zoomTargetSlotsByDelta(-0.15);
+                              } else {
+                                updateSlot(idx, {
+                                  zoom: Math.max(0.3, Number((slotState.zoom - 0.15).toFixed(2))),
+                                });
+                              }
                             }}
                             className="px-1.5 py-0.5 rounded bg-slate-900/90 text-white text-[10px] font-bold"
                           >
@@ -2871,7 +3321,13 @@ export const CollageStudioView: React.FC = () => {
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
-                              updateSlot(idx, { zoom: Math.min(4.0, Number((slotState.zoom + 0.15).toFixed(2))) });
+                              if (isSelected && isMultipleSelected) {
+                                zoomTargetSlotsByDelta(0.15);
+                              } else {
+                                updateSlot(idx, {
+                                  zoom: Math.min(4.0, Number((slotState.zoom + 0.15).toFixed(2))),
+                                });
+                              }
                             }}
                             className="px-1.5 py-0.5 rounded bg-slate-900/90 text-white text-[10px] font-bold"
                           >
@@ -2884,11 +3340,21 @@ export const CollageStudioView: React.FC = () => {
                     {/* Interactive Resize Handles when Selected */}
                     {isSelected && (
                       <>
-                        {/* Bottom-Right Corner Resize Handle (Always active on selected slot!) */}
+                        {/* Bottom-Right Corner Resize Handle (Resizes all selected frames if multiple selected!) */}
                         <div
                           onPointerDown={(e) => handleSlotPointerDown(e, idx, 'resize-se')}
-                          title={isAr ? 'اسحب لتكبير أو تصغير حجم الإطار' : 'Drag to resize frame'}
-                          className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-cyan-400 border-2 border-slate-950 shadow-lg cursor-nwse-resize z-30 flex items-center justify-center"
+                          title={
+                            isMultipleSelected
+                              ? isAr
+                                ? 'اسحب لتكبير أو تصغير جميع الإطارات المحددة معاً'
+                                : 'Drag to resize all selected frames together'
+                              : isAr
+                              ? 'اسحب لتكبير أو تصغير حجم الإطار'
+                              : 'Drag to resize frame'
+                          }
+                          className={`absolute -bottom-2 -right-2 w-5 h-5 rounded-full border-2 border-slate-950 shadow-lg cursor-nwse-resize z-30 flex items-center justify-center ${
+                            isMultipleSelected ? 'bg-emerald-400' : 'bg-cyan-400'
+                          }`}
                         >
                           <span className="w-1.5 h-1.5 rounded-full bg-slate-950" />
                         </div>
@@ -3022,9 +3488,13 @@ export const CollageStudioView: React.FC = () => {
               <div className="flex items-center gap-2 text-slate-300">
                 <Move className="w-4 h-4 text-amber-400" />
                 <span>
-                  {isAr
-                    ? `الخانة #${selectedSlotIdx + 1}: اسحب النقطة الزرقاء بزاوية الإطار لتغيير حجمه، أو حرك عجلة الماوس لتكبير/تصغير الصورة`
-                    : `Slot #${selectedSlotIdx + 1}: Drag cyan corner handle to resize frame, or scroll wheel to zoom photo`}
+                  {isMultipleSelected
+                    ? isAr
+                      ? `محدد حالياً (${activeTargetIndices.length} صور): حرك عجلة الماوس أو أزرار (+) لتكبير كل الصور المحددة معاً، أو اسحب النقطة الخضراء لتكبير إطاراتهم معاً`
+                      : `${activeTargetIndices.length} slots selected: Scroll wheel or click (+) to zoom all selected photos, or drag corner handle to resize frames`
+                    : isAr
+                    ? `الخانة #${selectedSlotIdx + 1}: اضغط "تحديد الكل" أو "تحديد متعدد" بالأعلى لتحديد أكثر من صورة وتكبيرهم معاً`
+                    : `Slot #${selectedSlotIdx + 1}: Click "Select All" or "Multi-Select" above to zoom/scale multiple photos together`}
                 </span>
               </div>
 
